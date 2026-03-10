@@ -584,3 +584,8 @@ print(df[influyentes, ])
 
 
 El modelo cumple con los supuestos de normalidad ($p=0.86$) y ausencia de heterocedasticidad ($p=0.09$). Aunque se identificaron observaciones extremas correspondientes a la crisis de 1998 y el choque del COVID-19 (2020-2021), las pruebas de influencia confirman que estas no invalidan la estimación del coeficiente de Okun ($\beta = -0.197$), el cual se mantiene robusto y estadísticamente significativo.
+
+
+Link de github: ([link](https://github.com/juan-moreno31/TopicosEconometria/blob/9bc15bc8cc0c533272fd0c31618b01cf8430620e/taller4.qmd))
+
+Graciaaas por el plazo extra profe, sirvio mucho pa descansar de ser jurado de votacion.
