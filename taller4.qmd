@@ -1,0 +1,586 @@
+---
+title: "Taller 1: Análisis de Demanda y Endogeneidad"
+subtitle: "Tópicos en Econometría"
+author:
+  - name: "Juan Diego Moreno Sánchez"
+    email: "juan.moreno31@est.uexternado.edu.co"
+date: "`r Sys.Date()`"
+profesor: "Jacobo Campo Robledo"
+
+format:
+  pdf:
+    latex-engine: xelatex
+    papersize: letter
+    geometry:
+      - top=30mm
+      - left=25mm
+      - right=25mm
+      - bottom=30mm
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+    toc: false
+    toc-title: "Contenido"
+    toc-depth: 1
+    number-sections: true
+    colorlinks: true
+
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# EJERCICIO 1 – Pronóstico de Demanda de Energía Eléctrica en Colombia
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(knitr)
+library(kableExtra)
+library(lubridate)
+```
+
+```{r}
+energy_data <- read_excel("energyCOL.xlsx")
+
+energy_data <- energy_data %>%
+  rename(Fecha = `month-year`, Energia = energy) %>%
+  mutate(Fecha = as.Date(Fecha))
+
+energy_ts <- ts(energy_data$Energia, start = c(2016,1), frequency = 12)
+```
+
+La Unidad de Planeación Minero Energética (UPME) requiere un pronóstico de la demanda de energía eléctrica en Colombia para los años **2023 y 2024**. El archivo `energyCOL.xlsx` contiene información mensual de la demanda eléctrica en GWh para el periodo **2016–2022**.
+
+---
+
+## a) Gráfica de la serie
+
+```{r}
+ggplot(energy_data, aes(x = Fecha, y = Energia)) +
+  geom_line(color = "blue", linewidth = 0.8) +
+  labs(
+    title = "Demanda de Energía Eléctrica en Colombia (2016–2022)",
+    x = "Fecha",
+    y = "Demanda (GWh)"
+  ) +
+  theme_minimal()
+```
+
+En la gráfica se observa que la serie presenta **tendencia creciente** y **estacionalidad marcada**. Esto sugiere que la serie **no es estacionaria en niveles**.
+
+Para aplicar la metodología **Box-Jenkins** es necesario trabajar con una serie estacionaria. Por lo tanto se deben aplicar pruebas de raíz unitaria y, si es necesario, **diferenciación regular o estacional**.
+
+---
+
+## b) Metodología Box-Jenkins
+
+- Prueba de estacionariedad
+
+```{r}
+adf.test(energy_ts)
+```
+
+Dado que la serie en niveles presenta raíz unitaria, se analiza la serie diferenciada estacionalmente.
+
+```{r}
+adf.test(diff(energy_ts, lag = 12))
+```
+
+- ACF y PACF
+
+```{r}
+par(mfrow=c(1,2))
+acf(diff(energy_ts, lag=12), main="ACF serie diferenciada")
+pacf(diff(energy_ts, lag=12), main="PACF serie diferenciada")
+par(mfrow=c(1,1))
+```
+
+- Estimación del modelo SARIMA
+
+```{r}
+modelo_sarima <- auto.arima(
+  energy_ts,
+  seasonal = TRUE,
+  stepwise = FALSE,
+  approximation = FALSE
+)
+
+summary(modelo_sarima)
+```
+
+- Tabla de coeficientes
+
+```{r}
+coef_sarima <- data.frame(
+  Parametro = names(coef(modelo_sarima)),
+  Estimacion = coef(modelo_sarima)
+)
+
+coef_sarima %>%
+  kable(digits = 4, caption = "Coeficientes del modelo SARIMA") %>%
+  kable_styling(full_width = FALSE, position = "center")
+```
+
+La forma general del modelo SARIMA es:
+
+\[
+\Phi(B^{12})\phi(B)(1-B)^d(1-B^{12})^Dy_t=\Theta(B^{12})\theta(B)\varepsilon_t
+\]
+
+---
+
+- Diagnóstico del modelo
+
+```{r}
+checkresiduals(modelo_sarima)
+```
+
+Si los residuales no presentan autocorrelación significativa, el modelo captura adecuadamente la dinámica de la serie.
+
+---
+
+## c) Pronóstico SARIMA 2023–2024
+
+```{r}
+forecast_sarima <- forecast(modelo_sarima, h = 24)
+
+autoplot(forecast_sarima) +
+  autolayer(energy_ts, series="Serie observada") +
+  labs(
+    title="Pronóstico SARIMA de la Demanda de Energía",
+    x="Fecha",
+    y="Demanda (GWh)"
+  ) +
+  theme_minimal()
+```
+
+El pronóstico mantiene la tendencia y estacionalidad observadas en la serie histórica.
+
+---
+
+## d) Modelos Holt-Winters
+
+```{r}
+hw_multiplicativo <- HoltWinters(energy_ts, seasonal="multiplicative")
+hw_aditivo <- HoltWinters(energy_ts, seasonal="additive")
+```
+
+- Cálculo de indicadores
+
+```{r}
+sse_multiplicativo <- hw_multiplicativo$SSE
+rmse_multiplicativo <- sqrt(mean(hw_multiplicativo$residuals^2, na.rm = TRUE))
+
+sse_aditivo <- hw_aditivo$SSE
+rmse_aditivo <- sqrt(mean(hw_aditivo$residuals^2, na.rm = TRUE))
+
+comparacion_hw <- data.frame(
+  Modelo = c("HW Multiplicativo","HW Aditivo"),
+  SSE = c(sse_multiplicativo, sse_aditivo),
+  RMSE = c(rmse_multiplicativo, rmse_aditivo),
+  Alpha = c(hw_multiplicativo$alpha, hw_aditivo$alpha),
+  Beta = c(hw_multiplicativo$beta, hw_aditivo$beta),
+  Gamma = c(hw_multiplicativo$gamma, hw_aditivo$gamma)
+)
+
+comparacion_hw %>%
+  kable(digits=4, caption="Comparación modelos Holt-Winters") %>%
+  kable_styling(full_width=FALSE, position="center")
+```
+
+El mejor modelo es aquel que presenta **menores valores de SSE y RMSE**, ya que indica un mejor ajuste de la serie.
+
+---
+
+## e) Pronósticos Holt-Winters
+
+```{r}
+forecast_hw_multiplicativo <- forecast(hw_multiplicativo, h=24)
+forecast_hw_aditivo <- forecast(hw_aditivo, h=24)
+```
+
+- Pronóstico multiplicativo
+
+```{r}
+autoplot(forecast_hw_multiplicativo) +
+  autolayer(energy_ts, series="Serie observada") +
+  labs(
+    title="Pronóstico Holt-Winters Multiplicativo",
+    x="Fecha",
+    y="Demanda (GWh)"
+  ) +
+  theme_minimal()
+```
+
+- Pronóstico aditivo
+
+```{r}
+autoplot(forecast_hw_aditivo) +
+  autolayer(energy_ts, series="Serie observada") +
+  labs(
+    title="Pronóstico Holt-Winters Aditivo",
+    x="Fecha",
+    y="Demanda (GWh)"
+  ) +
+  theme_minimal()
+```
+
+---
+
+## f) Comparación de pronósticos
+
+```{r}
+comparacion_pronosticos <- data.frame(
+  Fecha = seq(as.Date("2023-01-01"), as.Date("2024-12-01"), by="month"),
+  SARIMA = as.numeric(forecast_sarima$mean),
+  HW_Mult = as.numeric(forecast_hw_multiplicativo$mean),
+  HW_Adit = as.numeric(forecast_hw_aditivo$mean)
+) %>%
+  mutate(
+    Dif_Mult = (SARIMA-HW_Mult)/SARIMA*100,
+    Dif_Adit = (SARIMA-HW_Adit)/SARIMA*100
+  )
+
+comparacion_pronosticos %>%
+  kable(
+    digits=2,
+    col.names=c("Fecha","SARIMA","HW Mult.","HW Adit.","% Dif Mult","% Dif Adit")
+  ) %>%
+  kable_styling(
+    bootstrap_options=c("striped","hover","condensed"),
+    font_size=10,
+    full_width=FALSE,
+    position="center"
+  )
+```
+
+- Promedio de diferencias
+
+```{r}
+comparacion_pronosticos %>%
+  summarise(
+    Prom_Dif_Mult = mean(abs(Dif_Mult)),
+    Prom_Dif_Adit = mean(abs(Dif_Adit))
+  ) %>%
+  kable(digits=3, caption="Promedio diferencias porcentuales") %>%
+  kable_styling(full_width=FALSE, position="center")
+```
+
+Los resultados muestran que las diferencias entre los métodos son relativamente pequeñas. En general, ambos métodos producen trayectorias similares. Si el promedio absoluto de diferencia del modelo aditivo es menor, se puede concluir que **Holt-Winters aditivo produce pronósticos ligeramente más cercanos al modelo SARIMA**.
+
+
+# EJERCICIO 2 – Modelo SARIMA para la Producción de Cerveza
+
+El archivo “*BEER.xls*” contiene información de la producción de cerveza en Australia, desde el primer trimestre de 1956 hasta el segundo trimestre de 1994, los datos están medidos en megalitros. Su Jefe le ha pedido que realice un pronóstico hasta el cuarto trimestre de 1996, siga un orden adecuado y presente lo siguiente:
+
+a) Un gráfico de la serie de tiempo y describa su comportamiento.
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(forecast)
+library(tseries)
+
+beer_data <- read_excel("3. BEER.xlsx")
+
+beer_ts <- ts(beer_data$beer, start = c(1956,1), frequency = 4)
+beer_data <- data.frame(
+  Fecha = seq(as.Date("1956-01-01"), as.Date("1994-06-30"), by="quarter"),
+  Produccion = beer_ts
+)
+
+ggplot(beer_data, aes(x = Fecha, y = Produccion)) +
+  geom_line(color = "blue", linewidth = 0.8) +
+  labs(
+    title = "Producción de Cerveza en Australia (1956–1994)",
+    x = "Fecha",
+    y = "Producción (Megalitros)"
+  ) +
+  theme_minimal()
+
+```
+
+En esta grafica se observa que la producción de cerveza en Australia presenta una **tendencia creciente** a lo largo del tiempo, así como una **estacionalidad marcada** con picos recurrentes cada año. Esto sugiere que la serie no es estacionaria en niveles y que es necesario aplicar transformaciones para estabilizar la media y la varianza antes de modelar.
+
+b) Evalúe la estacionalidad de en la serie de tiempo (*seasonal graph*). Interprete.
+
+```{r}
+ggseasonplot(beer_ts, year.labels = TRUE, year.labels.left = TRUE) +
+  labs(
+    title = "Gráfico de Estacionalidad de la Producción de Cerveza",
+    x = "Trimestre",
+    y = "Producción (Megalitros)"
+  ) +
+  theme_minimal()
+```
+
+En este colorido grafico se puede observar claramente la estacionalidad en la producción de cerveza, con picos que se repiten cada año en Q1 y Q4, y menor en Q1 y Q2. Esto indica que la demanda de cerveza tiene un patrón estacional fuerte, probablemente relacionado con factores climáticos o eventos sociales que aumentan el consumo en ciertos periodos del año.
+
+c) Determine la estacionariedad de la serie. Utilice la prueba ADF.
+
+```{r}
+adf.test(beer_ts)
+acf(beer_ts)
+pacf(beer_ts)
+```
+
+La prueba de Dickey-Fuller aumentada arroja un p-valor cercano a 0.99, por lo que no se rechaza la hipótesis nula de raíz unitaria. En consecuencia, la serie no es estacionaria en niveles y es necesario aplicar diferenciación para lograr estacionariedad antes de estimar un modelo SARIMA
+
+Ademas la prueba de autocorrelación muestra que hay autocorrelación significativa en los primeros lags, lo que también sugiere la necesidad de aplicar diferenciación para eliminar esta dependencia temporal.
+
+d) Utilice la metodología de Box-Jenkins para determinar el mejor PGD para la variable producción de cerveza. Presente los resultados de su estimación en una tabla, y la ecuación estimada del modelo SARIMA seleccionado.
+
+```{r}
+modelo_sarima_beer <- auto.arima(
+  beer_ts,
+  seasonal = TRUE,
+  stepwise = FALSE,
+  approximation = FALSE
+)
+summary(modelo_sarima_beer)
+```
+
+El modelo SARIMA seleccionado es SARIMA(0,1,2)(0,1,1)[4], lo que indica que se aplicó una diferenciación regular y una diferenciación estacional para lograr estacionariedad. La ecuación del modelo es:
+
+
+\[
+(1-B)(1-B^4)y_t = (1 - 0.9852B + 0.4156B^2)(1 - 0.7668B^4)\varepsilon_t
+\]
+
+```{r}
+checkresiduals(modelo_sarima_beer)
+```
+
+Vemos comos los residuales no presentan autocorrelación significativa, lo que sugiere que el modelo captura adecuadamente la dinámica de la serie.
+
+
+e) Elabore un pronóstico hasta el cuarto trimestre de 1996. Presente una gráfica con la serie y los periodos pronosticados. Debe ser visible el periodo pronosticado.
+
+```{r}
+forecast_beer <- forecast(modelo_sarima_beer, h = 10)
+autoplot(forecast_beer) +
+  autolayer(beer_ts, series="Serie observada") +
+  labs(
+    title="Pronóstico SARIMA de la Producción de Cerveza",
+    x="Fecha",
+    y="Producción (Megalitros)"
+  ) +
+  theme_minimal()
+
+```
+
+Vemos como de manera sorpresiva el pronóstico muestra una tendencia decreciente en la producción de cerveza para los próximos trimestres, lo que podría indicar una posible saturación del mercado o cambios en las preferencias de los consumidores. Sin embargo, es importante tener en cuenta que los pronósticos a largo plazo pueden ser menos precisos debido a la incertidumbre inherente en la dinámica del mercado y otros factores externos.
+
+
+# EJERCICIO 3 – Modelo ARIMAX para el consumo
+
+El Banco Central de una república caribeña quiere pronosticar el consumo agregado trimestral (consump) para 2026. Se sabe que la oferta monetaria M2 (m2) influye sobre el consumo en el corto plazo, siguiendo el trabajo de Friedman y Meiselman (1963) en el que representan la teoría cuantitativa del dinero.
+
+Usted dispone de una base de datos trimestrales que cubre el periodo 2003q1 a 2025q4 con las variables: **year**: año, **quarter**: trimestre (1–4), **m2**: agregado monetario M2, y **consump**: consumo agregado.
+
+Además, el Banco Central ya tiene una proyección oficial de m2 para 2026:
+
+| Trimestre 2026 | m2 |
+| :--- | :--- |
+| 2026q1 | 1787.65 |
+| 2026q2 | 1826.88 |
+| 2026q3 | 1865.47 |
+| 2026q4 | 1910.84 |
+
+a) Estimar un modelo ARIMAX(1,0,1) para consump usando m2 como regresor, presente los resultados en una tabla ordenada. *Pista: aquí el error del modelo es el que sigue un proceso ARMA(1,1), por esto no estamos interesados en la estacionariedad de la serie, ya que el error siempre es estacionario.* Interprete el resultado.
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(zoo) # Necesaria para manejar trimestres fácilmente
+
+df <- read_excel("Punto3_2026.xlsx")
+
+# Crear la fecha correctamente como objeto de trimestre (yearqtr)
+df <- df %>%
+  mutate(Fecha = as.yearqtr(2003 + (quarter - 1)/4))
+
+# Crear la serie de tiempo
+consump_ts <- ts(df$consump, start = c(2003, 1), frequency = 4)
+m2_ts <- ts(df$m2, start = c(2003, 1), frequency = 4)
+
+modelo_arimax <- Arima(consump_ts, order = c(1,0,1), xreg = m2_ts)
+summary(modelo_arimax)
+```
+
+El coeficiente de la oferta monetaria es 1.1225.Interpretación: Por cada unidad adicional de M2, el consumo aumenta en aproximadamente 1.12 unidades.Significancia: Si divides el coeficiente por su error estándar ($1.1225 / 0.0326 \approx 34.4$), obtienes un estadístico $t$ enorme. Esto significa que la oferta monetaria explica el consumo de forma muy significativa, lo que es consistente con la teoría cuantitativa del dinero. Además, los términos AR(1) y MA(1) también son significativos, lo que indica que el consumo tiene una dinámica temporal que se captura adecuadamente con este modelo ARIMAX.
+
+b) Determine que el modelo es un buen modelo, es decir, no tiene autocorrelación, y es estacionario e invertible. Explique los resultados.
+
+```{r}
+checkresiduals(modelo_arimax)
+```
+
+Los residuales del modelo no presentan autocorrelación significativa, lo que sugiere que el modelo captura adecuadamente la dinámica temporal del consumo. Además, el modelo es estacionario e invertible, lo que garantiza que las predicciones sean estables y confiables a largo plazo. En conjunto, estos resultados indican que el modelo ARIMAX es un buen ajuste para los datos de consumo y puede ser utilizado para realizar pronósticos futuros.
+
+c) Realice un pronóstico de consump para 2026q1–2026q4 incorporando los valores futuros de m2. Presente el gráfico con el pronóstico y los valores pronosticados en una tabla.
+
+```{r}
+# Valores futuros de m2 para 2026
+m2_futuro <- c(1787.65, 1826.88, 1865.47, 1910.84)
+# Pronóstico para 2026
+forecast_arimax <- forecast(modelo_arimax, xreg = m2_futuro, h = 4)
+autoplot(forecast_arimax) +
+  autolayer(consump_ts, series="Serie observada") +
+  labs(
+    title="Pronóstico ARIMAX de Consumo para 2026",
+    x="Fecha",
+    y="Consumo Agregado"
+  ) +
+  theme_minimal()
+# Tabla de pronósticos
+pronosticos_arimax <- data.frame(
+  Trimestre = c("2026q1", "2026q2", "2026q3", "2026q4"),
+  Consumo_Pronosticado = as.numeric(forecast_arimax$mean)
+)
+pronosticos_arimax %>%
+  kable(digits=2, caption="Pronóstico de Consumo para 2026") %>%
+  kable_styling(full_width=FALSE, position="center")
+```
+
+Como podemos ver en el gráfico, el pronóstico muestra una tendencia creciente en el consumo para los próximos trimestres de 2026, lo que es consistente con el aumento proyectado en la oferta monetaria M2. Los valores pronosticados indican que el consumo seguirá aumentando a medida que la economía crezca y la oferta monetaria se expanda, lo que es coherente con la teoría económica subyacente.
+
+## EJERCICIO 4 – Filtro Hodrick – Prescott
+
+La ley de Okun relaciona la variación de la tasa de desempleo y el crecimiento de la producción. Una manera de plantear esta relación es a través de la siguiente ecuación:
+
+$$\Delta u_t = -\beta (\Delta y_t - \Delta y_t^*)$$
+
+Esto implica que las variaciones de la tasa de desempleo $\Delta u_t = u_t - u_{t-1}$, están relacionadas con la desviación anual $(\Delta y_t - \Delta y_t^*)$ del crecimiento del PIB real $(\Delta y_t)$ utilizando los datos del archivo “*Okun 80-22.xlxs*”; de su tasa normal de crecimiento.
+
+a) Calcule la tasa normal (tendencial) de crecimiento del PIB de la serie original, la serie tendencia y la serie cíclica. Grafique los valores.
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(forecast)
+library(tseries)
+
+df <- read_excel("4. Okun_80_22.xlsx")
+colnames(df)
+
+df <- df %>%
+  rename(Year = year, PIB = GROWTH, DESEMPLEO = UNEM) %>%
+  mutate(Fecha = as.Date(paste0(Year, "-01-01")))   # crea fecha anual correcta
+
+# Crear objeto ts numérico (aquí asumo datos anuales; usar frequency=4 o 12 si corresponde)
+pib_ts <- ts(df$PIB, start = as.numeric(format(min(df$Fecha), "%Y")), frequency = 1)
+
+# Asegúrate de tener mFilter y aplica HP filter (lambda = 100 para datos anuales)
+if (!requireNamespace("mFilter", quietly = TRUE)) install.packages("mFilter")
+library(mFilter)
+
+hp_filter <- mFilter::hpfilter(pib_ts, freq = 100, type = "lambda")
+
+df <- df %>%
+  mutate(
+    Tendencia = as.numeric(hp_filter$trend),
+    Ciclo     = as.numeric(hp_filter$cycle)
+  )
+
+# Gráfica
+library(ggplot2)
+ggplot(df, aes(x = Fecha)) +
+  geom_line(aes(y = PIB, color = "PIB"), size = 0.8) +
+  geom_line(aes(y = Tendencia, color = "Tendencia"), size = 0.8) +
+  geom_line(aes(y = Ciclo, color = "Ciclo"), size = 0.8) +
+  labs(title = "PIB, Tendencia y Ciclo (HP filter)", x = "Fecha", y = "Valor") +
+  scale_color_manual(values = c("PIB"="blue","Tendencia"="red","Ciclo"="green")) +
+  theme_minimal()
+```
+
+b) Elabore un gráfico de dispersión que muestre la relación establecida en la ecuación anterior. Comente.
+
+```{r}
+df <- df %>%
+  mutate(
+    Delta_u = c(NA, diff(DESEMPLEO)),
+    Delta_y = c(NA, diff(PIB)),
+    Delta_y_star = c(NA, diff(Tendencia))
+  )
+ggplot(df, aes(x = Delta_y - Delta_y_star, y = Delta_u)) +
+  geom_point(color = "blue", size = 2) +
+  labs(
+    title = "Relación entre Variación de Desempleo y Desviación del Crecimiento del PIB",
+    x = "Desviación del Crecimiento del PIB (Δy - Δy*)",
+    y = "Variación de la Tasa de Desempleo (Δu)"
+  ) +
+  theme_minimal()
+```
+
+En el gráfico de dispersión se observa una relación negativa entre la variación de la tasa de desempleo (Δu) y la desviación del crecimiento del PIB (Δy - Δy*). Esto sugiere que cuando el crecimiento del PIB supera su tendencia (es decir, cuando Δy - Δy* es positivo), la tasa de desempleo tiende a disminuir (Δu es negativo). Por el contrario, cuando el crecimiento del PIB está por debajo de su tendencia, la tasa de desempleo tiende a aumentar. Esta relación es consistente con la ley de Okun, que establece que un crecimiento económico más fuerte está asociado con una reducción en el desempleo.
+
+c) Utilizando un modelo de regresión como el siguiente, calcule el coeficiente de Okun e interprete dicho valor. ¿Es estadísticamente significativo? ¿Tiene el signo esperado? Presente los resultados en una tabla.
+
+$$
+\Delta u_t = \beta (\Delta y_t - \Delta y_t^*) + \varepsilon_t
+$$
+
+
+```{r}
+modelo_okun <- lm(Delta_u ~ I(Delta_y - Delta_y_star), data = df)
+summary(modelo_okun)
+```
+
+Existe una relación inversa entre la variación de la tasa de desempleo y la desviación del crecimiento del PIB, lo que es consistente con la ley de Okun. El coeficiente estimado es negativo, lo que indica que un aumento en la desviación del crecimiento del PIB está asociado con una disminución en la tasa de desempleo. Además, el valor p asociado al coeficiente es menor a 0.05, lo que indica que el coeficiente es estadísticamente significativo.
+
+d) Pruebe si el modelo estimado cumple con los supuestos del modelo de regresión lineal (No Autocorrelación, Homoscedasticidad, Normalidad).
+
+```{r}
+par(mfrow=c(2,2))
+plot(modelo_okun)
+library(lmtest) 
+library(car)    
+library(nortest) 
+
+# Definir el modelo
+modelo_okun <- lm(Delta_u ~ I(Delta_y - Delta_y_star), data = df)
+
+# --- PRUEBAS DE SUPUESTOS ---
+
+# A. Normalidad de los residuos (Shapiro-Wilk)
+# H0: Los residuos son normales. Si p > 0.05, todo bien.
+shapiro.test(residuals(modelo_okun))
+
+# B. Homocedasticidad (Breusch-Pagan)
+# H0: Varianza constante. Si p < 0.05, tienes heterocedasticidad.
+bptest(modelo_okun)
+
+# C. Autocorrelación (Durbin-Watson)
+# Evalúa si los errores de un periodo dependen del anterior (clave en series de tiempo).
+# Un valor cercano a 2 indica que no hay autocorrelación.
+dwtest(modelo_okun)
+
+# --- ANÁLISIS DE DATOS INFLUYENTES ---
+
+# D. Identificar Outliers y puntos de apalancamiento (Bonferroni)
+outlierTest(modelo_okun)
+
+cooks_d <- cooks.distance(modelo_okun)
+n <- nrow(df)
+umbral <- 4/n
+
+plot(cooks_d, type="h", main="Distancia de Cook", ylab="Distancia")
+abline(h = umbral, col="red", lty=2)
+
+# Como en python
+influyentes <- which(cooks_d > umbral)
+print(df[influyentes, ])
+```
+
+
+El modelo cumple con los supuestos de normalidad ($p=0.86$) y ausencia de heterocedasticidad ($p=0.09$). Aunque se identificaron observaciones extremas correspondientes a la crisis de 1998 y el choque del COVID-19 (2020-2021), las pruebas de influencia confirman que estas no invalidan la estimación del coeficiente de Okun ($\beta = -0.197$), el cual se mantiene robusto y estadísticamente significativo.
