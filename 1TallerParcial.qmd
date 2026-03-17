@@ -1,0 +1,1260 @@
+---
+title: "Taller 1: Análisis de Demanda y Endogeneidad"
+subtitle: "Tópicos en Econometría"
+author:
+  - name: "Juan Diego Moreno Sánchez"
+    email: "juan.moreno31@est.uexternado.edu.co"
+date: "`r Sys.Date()`"
+profesor: "Jacobo Campo Robledo"
+
+format:
+  pdf:
+    latex-engine: xelatex
+    papersize: letter
+    fontsize: 11pt
+    linestretch: 1.15
+    keep-tex: true
+    colorlinks: true
+    toc: false
+    toc-title: "Contenido"
+    number-sections: true
+    number-depth: 2
+    fig-cap-location: bottom
+    tbl-cap-location: top
+    geometry:
+      - top=30mm
+      - left=25mm
+      - right=25mm
+      - bottom=30mm
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+        \usepackage{booktabs}
+        \usepackage{longtable}
+        \usepackage{array}
+        \usepackage{caption}
+        \usepackage{float}
+        \setlength{\emergencystretch}{3em}
+
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## EJERCICIO 1 – Pronosticando la Brecha de Género en el Mercado Laboral Colombiano
+
+Usted(es) han sido contratados por una ONG para participar como consultores cuantitativos en un proyecto sobre brechas de género en el mercado laboral. Dados sus conocimientos en Series de Tiempo, el líder del proyecto les asigna la tarea de elaborar un análisis estadístico de series de tiempo de la tasa de desempleo para hombres y la tasa de desempleo para mujeres en Colombia, con el fin de pronosticar y después calcular la brecha de género. Para esto ustedes deben construir una base de datos para el periodo mensual de 2007M1 a 2025M12.
+Para estructurar su análisis, el líder les indica los siguientes pasos a seguir:
+
+### a) Presente una gráfica de ambas series de tiempo. Describa el comportamiento de la tendencia a lo largo de la serie y de la estacionalidad. Puede acompañar esto con una gráfica estacional (seasonal graph) de cada serie.
+
+```{r}
+# Cargar librerías necesarias
+library(fredr)
+library(ggplot2)
+library(dplyr)
+# Cargar datos de la tasa de desempleo para hombres y mujeres en Colombia
+fredr_set_key("5d121558ce891d0b386e789bb617544a")
+# Con la api de FRED, obtenemos los datos de desempleo para hombres y mujeres
+unemployment_women <- fredr(series_id = "COLLFUNTTFESTM") |> select(date, value) |> rename(unemployment_w = value)
+unemployment_men <- fredr(series_id = "COLLFUNTTMASTSAM") |> select(date, value) |> rename(unemployment_m = value)
+
+# Unir las dos series en un solo data frame
+
+unemployment_data <- left_join(unemployment_women, unemployment_men, by = "date")
+```
+
+En la siguiente grafica podremos observar el comportamiento de ambas series a lo largo del tiempo, así como su estacionalidad.
+
+A primera vista podemos ver que el desempleo de mujeres es más alto que el de los hombre, incluso la serie de las mujeres tiene un componente estacional multiplicativo, mientras que la serie de los hombres tiene un componente estacional aditivo. Además, ambas series presentan una tendencia creciente a lo largo del tiempo, aunque la tasa de desempleo de mujeres parece tener una tendencia más pronunciada que la de los hombres. En cuanto a la estacionalidad, se observa que ambos series presentan picos en ciertos meses del año, lo que sugiere la presencia de estacionalidad en ambas series. Sin embargo, la estacionalidad en la serie de mujeres parece ser más fuerte que en la serie de hombres.
+
+```{r}
+#| label: fig-desempleo
+#| fig-cap: "Desempleo en Colombia por Sexo (2007-2025)"
+#| fig-width: 6.5
+#| fig-height: 5.5
+#| fig-align: center
+#| echo: false
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# 1. Transformar datos a formato largo (esto unifica leyenda y escalas)
+unemployment_long <- unemployment_data %>%
+  pivot_longer(cols = c(unemployment_w, unemployment_m), 
+               names_to = "Variable", 
+               values_to = "total") %>%
+  mutate(Variable = ifelse(Variable == "unemployment_w", "Mujeres", "Hombres"))
+
+# 2. Gráfico con facetas (una sobre otra)
+ggplot(unemployment_long, aes(x = date, y = total, color = Variable)) +
+  geom_line(size = 0.7) +
+  # ncol = 1 pone una gráfica arriba de la otra
+  facet_wrap(~Variable, ncol = 1) + 
+  scale_color_manual(values = c("Mujeres" = "red", "Hombres" = "blue")) +
+  labs(
+    x = "Año",
+    y = "total",
+    caption = "Fuente: FRED",
+    color = "Referencia"
+  ) +
+  theme_minimal(base_size = 9) + # Letra más pequeña para que no se vea tosco
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold"), # Título de cada recuadro
+    plot.caption = element_text(hjust = 0.5, size = 8),
+    panel.spacing = unit(0.5, "lines") # Reduce espacio entre gráficas
+  )
+```
+
+### b) Construya una tabla para cada serie donde presente por cada año (2007 a 2025) la media, la mediana, la desviación estándar, el mínimo y el máximo. Redacte dos párrafos en los que utilice estos estadísticos para comparar las series.
+
+```{r}
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+
+brechas_unemployment <- unemployment_data %>%
+  mutate(year = format(date, "%Y")) %>%
+  group_by(year) %>%
+  summarise(
+    # Diferencia 
+    diff_media = mean(unemployment_w, na.rm = TRUE) - mean(unemployment_m, na.rm = TRUE),
+    # Razón: cuántas veces es mayor el desempleo femenino
+    ratio_media = mean(unemployment_w, na.rm = TRUE) / mean(unemployment_m, na.rm = TRUE),
+    # Diferencia de volatilidad
+    diff_sd = sd(unemployment_w, na.rm = TRUE) - sd(unemployment_m, na.rm = TRUE),
+    # Brecha en los picos máximos de desempleo
+    diff_max = max(unemployment_w, na.rm = TRUE) - max(unemployment_m, na.rm = TRUE)
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))
+
+
+kable(brechas_unemployment, 
+      col.names = c("Año", "Dif. total", "Razón (W/M)", "Dif. SD", "Dif. Máximos"),
+      booktabs = TRUE, 
+      align = "c",
+      caption = "Análisis de Brechas de Género en el Desempleo (2007-2025)") %>%
+  kable_styling(latex_options = c("striped", "hold_position"), 
+                full_width = F,
+                font_size = 10) %>%
+  add_header_above(c(" " = 1, "Métricas de Desigualdad (Mujeres vs. Hombres)" = 4)) %>%
+  footnote(general = "Fuente: Elaboración propia con datos de FRED (Federal Reserve Economic Data).",
+           general_title = "", 
+           footnote_as_chunk = T)
+```
+
+Para esta tabla tome la desición por orden e intepretabilidad de que los estaditicos no sean por separado para cada serie, sino que se muestren las diferencias entre ambas series. Esto con el fin de facilitar la comparación entre las dos series. En esta tabla se pueden observar varias métricas que permiten comparar la tasa de desempleo entre hombres y mujeres a lo largo del tiempo. La columna "Dif. total" muestra la diferencia en la media de desempleo entre mujeres y hombres para cada año, evidenciando que en todos los años las mujeres tienen una tasa de desempleo más alta que los hombres. La columna "Razón (W/M)" indica cuántas veces es mayor la tasa de desempleo de las mujeres en comparación con la de los hombres, mostrando una tendencia creciente a lo largo del tiempo, lo que sugiere un aumento en la brecha de género en el desempleo. La columna "Dif. SD" muestra la diferencia en la desviación estándar entre las dos series, indicando que la volatilidad del desempleo para las mujeres es generalmente mayor que para los hombres, lo que podría reflejar una mayor inestabilidad en el mercado laboral para las mujeres. Finalmente, la columna "Dif. Máximos" muestra la diferencia en los valores máximos de desempleo entre mujeres y hombres, evidenciando que en los años de crisis económica, como 2020, la brecha en los picos de desempleo se amplió significativamente, lo que podría estar relacionado con el impacto desproporcionado de la pandemia en ciertos sectores donde las mujeres tienen una mayor representación.
+
+### c) Utilizando la metodología de Box-Jenkins, determine el mejor modelo SARIMA que represente el Proceso Generador de Datos de cada serie. Esto debe estar acompañado de las pruebas necesarias y la justificación de su elección.
+
+### d) Realice un pronóstico de la tasa de desempleo de hombres y de la tasa de desempleo de mujeres para los doce meses del año 2026. Presente un gráfico con ambas series. Comente.
+
+#### 1. Serie de desempleo de mujeres
+
+1. Primero haremos toda la metodología de Box-Jenkins para la serie de desempleo de mujeres, y luego para la serie de desempleo de hombres. Para cada serie, se realizará el análisis de estacionariedad, identificación del modelo SARIMA, estimación de parámetros, diagnóstico del modelo y finalmente el pronóstico para el año 2026.
+
+La visualización de las serie de desempleo de mujeres muestra una tendencia creciente y una estacionalidad clara, lo que sugiere que la serie no es estacionaria. Para confirmar esto, se realizará la prueba de Dickey-Fuller aumentada (ADF) para verificar la presencia de raíces unitarias. Si la serie no es estacionaria, se aplicará una diferenciación para eliminar la tendencia y/o estacionalidad.
+
+```{r}
+library(tseries)
+# Prueba de Dickey-Fuller aumentada para la serie de desempleo de mujeres
+adf_test_w <- adf.test(unemployment_data$unemployment_w, alternative = "stationary")
+adf_test_w
+w_ts <- ts(unemployment_data$unemployment_w, frequency = 12)
+```
+
+La prueba ADF nos dice que la serie de desempleo de mujeres no es estacionaria, ya que el valor p es mayor que 0.05. Por lo tanto, se aplicará una diferenciación para eliminar la tendencia y/o estacionalidad.
+
+```{r}
+# Diferenciación de la serie de desempleo de mujeres
+unemployment_w_diff <- diff(unemployment_data$unemployment_w, differences = 1)
+# Prueba de Dickey-Fuller aumentada para la serie diferenciada
+adf_test_w_diff <- adf.test(unemployment_w_diff, alternative = "stationary")
+adf_test_w_diff
+```
+
+La serie diferenciada del desempleo en mujeres ahora es estacionaria, gracias a que la prueba ADF muestra un valor p de 0.01, lo que indica que podemos proceder a la identificación del proceso SARIMA para esta serie. Se analizarán los gráficos de autocorrelación (ACF) y autocorrelación parcial (PACF) para determinar los posibles valores de los parámetros p, d, q, P, D, Q y m.
+
+```{r}
+library(forecast)
+# Gráficos de ACF y PACF para la serie diferenciada de desempleo de mujeres
+par(mfrow = c(1, 2))
+acf(unemployment_w_diff, main = "ACF - Desempleo Mujeres Diferenciado")
+pacf(unemployment_w_diff, main = "PACF - Desempleo Mujeres Diferenciado")
+```
+
+Podemos observar como el resago 12 muestra una autocorrelación significativa, lo que sugiere la presencia de estacionalidad anual. Además, los primeros rezagos también muestran autocorrelación, lo que indica que podríamos considerar un modelo SARIMA con componentes tanto no estacionales como estacionales. Basándonos en estos gráficos, se podrían probar varios modelos SARIMA, como SARIMA(1,1,1)(1,1,1)[12], SARIMA(0,1,1)(0,1,1)[12], entre otros. La selección del mejor modelo se realizará utilizando criterios de información como AIC o BIC.
+
+\newpage
+
+```{r}
+# Prueba de varios modelos SARIMA para la serie de desempleo de mujeres
+model_w_1 <- Arima(unemployment_data$unemployment_w,
+                             order = c(1, 1, 1),
+                             seasonal = list(order = c(1, 1, 1), period = 12))
+
+model_w_2 <- Arima(unemployment_data$unemployment_w,
+                             order = c(0, 1, 1),
+                             seasonal = list(order = c(0, 1, 1), period = 12))
+
+modelo_w_3 <- auto.arima(unemployment_data$unemployment_w,
+                                   seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+
+# Comparación de modelos utilizando AIC y BIC
+model_comparison_w <- data.frame(
+  Model = c("SARIMA(1,1,1)(1,1,1)[12]", "SARIMA(0,1,1)(0,1,1)[12]", "Auto ARIMA"),
+  AIC = c(AIC(model_w_1), AIC(model_w_2), AIC(modelo_w_3)),
+  BIC = c(BIC(model_w_1), BIC(model_w_2), BIC(modelo_w_3))
+)
+kable(model_comparison_w, 
+      col.names = c("Modelo", "AIC", "BIC"),
+      booktabs = TRUE, 
+      align = "c",
+      caption = "Comparación de Modelos SARIMA para Desempleo de Mujeres") %>%
+  kable_styling(latex_options = c("striped", "hold_position"), 
+                full_width = F,
+                font_size = 10) %>%
+  footnote(general = "Fuente: Elaboración propia con datos de FRED (Federal Reserve Economic Data).",
+           general_title = "", 
+           footnote_as_chunk = T)
+```
+
+De nuevo podemos ver que el auto.arima es el modelo que peor resultado da, mientras que el modelo SARIMA(0,1,1)(0,1,1)[12] es el que mejor resultado da, con el menor AIC y BIC. Por lo tanto, se seleccionará el modelo SARIMA(0,1,1)(0,1,1)[12] para la serie de desempleo de mujeres. Se realizará un diagnóstico del modelo para verificar que los residuos sean ruido blanco y luego se procederá a realizar el pronóstico para el año 2026.
+
+```{r}
+# Diagnóstico del modelo SARIMA seleccionado para desempleo de mujeres
+checkresiduals(model_w_2)
+#prueba de Ljung-Box para verificar la autocorrelación de los residuos
+Box.test(residuals(model_w_2), lag = 20, type = "Ljung-Box")
+```
+
+Podemos ver que el modelo SARIMA(0,1,1)(0,1,1)[12] para la serie de desempleo de mujeres tiene residuos que parecen ser ruido blanco, ya que no muestran patrones significativos en el gráfico de residuos ni en el gráfico de ACF de los residuos. Además, la prueba de Ljung-Box no es significativa, lo que indica que no hay autocorrelación en los residuos. Por lo tanto, se puede concluir que el modelo es adecuado para representar la serie de desempleo de mujeres. A continuación, se realizará el pronóstico para los doce meses del año 2026 utilizando este modelo.
+
+La predicción para el año 2026 se realizará utilizando la función `forecast` del paquete `forecast`, que nos permitirá obtener los valores pronosticados para cada mes de 2026, así como los intervalos de confianza asociados a estos pronósticos. Luego, se graficarán los resultados para visualizar tanto la serie histórica como los pronósticos para el año 2026.
+
+```{r}
+# Pronóstico para el año 2026 utilizando el modelo SARIMA seleccionado para desempleo de mujeres
+forecast_w <- forecast(model_w_2, h = 12)
+# Gráfico de la serie histórica y los pronósticos para el año 2026
+autoplot(forecast_w) +
+  labs(title = "Pronóstico de la Tasa de Desempleo de Mujeres para 2026",
+       x = "Año",
+       y = "Tasa de Desempleo (%)") +
+  theme_minimal()
+```
+
+Podemos observar que el modelo predice un ciclo de caida del desempleo en mujeres para el año 2026.
+
+#### 2. Serie de desempleo de hombres
+
+2. Para la serie de desempleo de hombres, se realizará el mismo proceso de análisis de estacionariedad, identificación del modelo SARIMA, estimación de parámetros, diagnóstico del modelo y pronóstico para el año 2026. Se espera encontrar un modelo SARIMA diferente al de la serie de mujeres, dado que las características de ambas series son distintas en términos de tendencia y estacionalidad.
+
+Realizaremos la prueba de Dickey-Fuller aumentada para la serie de desempleo de hombres para verificar su estacionariedad, y en caso de no ser estacionaria, se aplicará una diferenciación similar a la realizada para la serie de mujeres. Luego, se analizarán los gráficos de ACF y PACF para identificar los posibles modelos SARIMA y se seleccionará el mejor modelo utilizando criterios de información como AIC o BIC. Finalmente, se realizará el diagnóstico del modelo seleccionado y se procederá a realizar el pronóstico para el año 2026.
+
+```{r}
+# casi que no, no se pq no daba
+m_ts <- ts(unemployment_data$unemployment_m, frequency = 12)
+```
+
+```{r}
+# Prueba de Dickey-Fuller aumentada para la serie de desempleo de hombres
+adf_test_m <- adf.test(m_ts, alternative = "stationary")
+adf_test_m
+```
+
+Podemos ver que la serie de desempleo de hombres también no es estacionaria, ya que el valor p es mayor que 0.10. Por lo tanto, se aplicará una diferenciación para eliminar la tendencia y/o estacionalidad.
+
+```{r}
+# Diferenciación de la serie de desempleo de hombres
+unemployment_m_diff <- diff(m_ts, differences = 1)
+# Prueba de Dickey-Fuller aumentada para la serie diferenciada
+adf_test_m <- adf.test(unemployment_m_diff, alternative = "stationary")
+adf_test_m
+```
+
+Ahora la serie diferenciada del desempleo en hombres es estacionaria, con un valor p de 0.01. Por lo tanto, se puede proceder a la identificación del proceso SARIMA para esta serie, analizando los gráficos de ACF y PACF para determinar los posibles valores de los parámetros p, d, q, P, D, Q y m. Se probarán varios modelos SARIMA y se seleccionará el mejor utilizando criterios de información como AIC o BIC.
+
+```{r}
+# Gráficos de ACF y PACF para la serie diferenciada de desempleo de hombres
+par(mfrow = c(1, 2))
+acf(unemployment_m_diff, main = "ACF - Desempleo Hombres Diferenciado")
+pacf(unemployment_m_diff, main = "PACF - Desempleo Hombres Diferenciado")
+```
+
+Despues de mucho lucharla, se puede observar que el resago 12 muestra una autocorrelación significativa, lo que sugiere la presencia de estacionalidad anual. Además, los primeros rezagos también muestran autocorrelación, lo que indica que podríamos considerar un modelo SARIMA con componentes tanto no estacionales como estacionales. Basándonos en estos gráficos, se podrían probar varios modelos SARIMA, como SARIMA(1,1,1)(1,1,1)[12], SARIMA(0,1,1)(0,1,1)[12], entre otros. La selección del mejor modelo se realizará utilizando criterios de información como AIC o BIC.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+# 1. Asegurarnos de que el modelo auto.arima use la parte estacional
+# Quitamos seasonal = FALSE porque ya vimos que el rezago 12 es clave
+model_m_auto <- auto.arima(m_ts, 
+                           seasonal = TRUE, 
+                           stepwise = FALSE, 
+                           approximation = FALSE)
+
+# 2. Definir modelos manuales basados en tu análisis de ACF/PACF
+# Nota: Usamos 'unemployment_data$log_m' corregido
+model_m_1 <- Arima(m_ts, 
+                   order = c(1, 1, 1), 
+                   seasonal = c(1, 1, 1))
+
+model_m_2 <- Arima(m_ts, 
+                   order = c(0, 1, 1), 
+                   seasonal = c(0, 1, 1))
+
+# 3. Comparación de modelos
+model_comparison_m <- data.frame(
+  Modelo = c("SARIMA(1,1,1)(1,1,1)[12]",
+             "SARIMA(0,1,1)(0,1,1)[12]",
+             "Auto ARIMA"),
+  AIC = c(AIC(model_m_1), AIC(model_m_2), AIC(model_m_auto)),
+  BIC = c(BIC(model_m_1), BIC(model_m_2), BIC(model_m_auto)),
+  stringsAsFactors = FALSE
+)
+
+# 4. Tabla elegante
+kable(model_comparison_m, 
+      booktabs = TRUE, 
+      align = "c",
+      caption = "Comparación de Modelos SARIMA para Desempleo de Hombres") %>%
+  kable_styling(latex_options = c("striped", "hold_position"), 
+                full_width = F,
+                font_size = 10) %>%
+  footnote(general = "Fuente: Elaboración propia con datos de FRED.",
+           general_title = "", 
+           footnote_as_chunk = T)
+```
+
+Podemos ver como el modelo que decidi fue el mismo que eligio el auto.arima, el modelo SARIMA(0,1,1)(0,1,1)[12], con el menor BIC. Por lo tanto, se seleccionará este modelo para la serie de desempleo de hombres. Se realizará un diagnóstico del modelo para verificar que los residuos sean ruido blanco y luego se procederá a realizar el pronóstico para el año 2026.
+
+```{r}
+#diagnóstico del modelo SARIMA seleccionado para desempleo de hombres
+checkresiduals(model_m_auto)
+#prueba de Ljung-Box para verificar la autocorrelación de los residuos
+Box.test(residuals(model_m_auto), lag = 20, type = "Ljung-Box")
+```
+
+Podemos ver que el modelo SARIMA(0,1,1)(0,1,1)[12] para la serie de desempleo de hombres tiene residuos que parecen ser ruido blanco, ya que no muestran patrones significativos en el gráfico de residuos ni en el gráfico de ACF de los residuos. Además, la prueba de Ljung-Box no es significativa, lo que indica que no hay autocorrelación en los residuos. Por lo tanto, se puede concluir que el modelo es adecuado para representar la serie de desempleo de hombres. A continuación, se realizará el pronóstico para los doce meses del año 2026 utilizando este modelo.
+
+```{r}
+library(forecast)
+
+forecast_m_easy <- forecast(model_m_auto, h = 12)
+
+# Gráfico directo (Ya saldrá en millones y con curvas)
+autoplot(forecast_m_easy) +
+  labs(title = "Pronóstico Desempleo Masculino (Escala Original)",
+       y = "Millones de personas",
+       x = "Año") +
+  theme_minimal()
+```
+
+### e) Aplique el método de Holt-Winter estacional multiplicativo y aditivo para el periodo 2007 a 2025 para cada serie, presente una tabla comparando los resultados (Suma cuadrada de los Errores, Raíz del Error Cuadrático Medio y el valor de los parámetros alpha, beta y gamma) de cada uno en una tabla. ¿Cuál es el mejor? Explique.
+
+```{r}
+# Aplicar método de Holt-Winters estacional multiplicativo para desempleo de mujeres
+hw_multiplicativo_w <- hw(w_ts, 
+                            seasonal = "multiplicative", 
+                            h = 12)
+# Aplicar método de Holt-Winters estacional aditivo para desempleo de mujeres
+hw_aditivo_w <- hw(w_ts, 
+                        seasonal = "additive", 
+                        h = 12)
+# Aplicar método de Holt-Winters estacional multiplicativo para desempleo de hombres
+hw_multiplicativo_m <- hw(m_ts, 
+                            seasonal = "multiplicative", 
+                            h = 12)
+# Aplicar método de Holt-Winters estacional aditivo para desempleo de hombres
+hw_aditivo_m <- hw(m_ts,
+                        seasonal = "additive", 
+                        h = 12)
+
+# Función para extraer métricas rápidamente
+get_metrics <- function(model, nombre) {
+  accuracy_res <- accuracy(model)
+  data.frame(
+    Modelo = nombre,
+    RMSE = accuracy_res[1, "RMSE"],
+    MAPE = accuracy_res[1, "MAPE"],
+    AIC = model$model$aic
+  )
+}
+
+# Unir todas las métricas en una tabla
+comparativa_hw <- rbind(
+  get_metrics(hw_aditivo_w, "Mujeres - Aditivo"),
+  get_metrics(hw_multiplicativo_w, "Mujeres - Multiplicativo"),
+  get_metrics(hw_aditivo_m, "Hombres - Aditivo"),
+  get_metrics(hw_multiplicativo_m, "Hombres - Multiplicativo")
+)
+
+# Crear la tabla con kable
+kable(comparativa_hw, 
+      digits = 4,
+      caption = "Comparación de Modelos Holt-Winters: Aditivo vs Multiplicativo",
+      booktabs = TRUE,
+      align = "c") %>%
+  kable_styling(latex_options = c("striped", "hold_position"), 
+                full_width = F) %>%
+  pack_rows("Desempleo Mujeres", 1, 2) %>%
+  pack_rows("Desempleo Hombres", 3, 4)
+```
+
+Al comparar los métodos de suavizamiento exponencial de Holt-Winters, se seleccionaron modelos diferenciados por sexo. Para el desempleo femenino, el modelo Aditivo resultó superior al presentar un menor error cuadrático medio (RMSE: 82,732). Y en el caso del desempleo masculino, el modelo aditivo también mostró un mejor desempeño con un RMSE de 82,494, lo que demuestra que el modelo aditivo es más adecuado para ambas series. Esto podría deberse a que la estacionalidad en ambas series no es tan fuerte como para justificar un modelo multiplicativo, y el modelo aditivo puede capturar mejor las variaciones en la tasa de desempleo a lo largo del tiempo sin amplificar los efectos estacionales. Además, los valores de AIC de la mujer es mas alto para el modelo 
+aditivo que para el modelo multiplicativo para las mujeres y hombres, por lo que tomamos la desición con la metrica de RMSE, que es la métrica más común para evaluar la precisión de los modelos de pronóstico. En resumen, el modelo de Holt-Winters aditivo se considera el mejor para ambas series debido a su menor error cuadrático medio, lo que indica una mejor capacidad de pronóstico en comparación con el modelo multiplicativo.
+
+### f) Elabore un pronóstico hasta diciembre de 2026 utilizando el método seleccionado. Presente una gráfica con la serie y los periodos pronosticados para ambas tasas de desempleo. Debe ser visible el periodo pronosticado.
+
+```{r}
+# Pronóstico para el año 2026 utilizando el modelo de Holt-Winters aditivo para mujeres
+forecast_hw_w <- forecast(hw_aditivo_w, h = 12)
+# Pronóstico para el año 2026 utilizando el modelo de Holt-Winters aditivo para hombres
+forecast_hw_m <- forecast(hw_aditivo_m, h = 12)
+# Gráfico de la serie histórica y los pronósticos para el año 2026
+autoplot(forecast_hw_w) +
+  labs(title = "Pronóstico del Desempleo de Mujeres para 2026 (Holt-Winters Aditivo)",
+       x = "Año",
+       y = "Desempleo",
+       ,
+        caption = "Pronostico realizado con datos de la FRED") +
+  theme_minimal()
+autoplot(forecast_hw_m) +
+  labs(title = "Pronóstico del Desempleo de Hombres para
+    2026 (Holt-Winters Aditivo)",
+        x = "Año",
+        y = " Desempleo",
+        caption = "Pronostico realizado con datos de la FRED") + 
+    theme_minimal()
+```
+
+### g) Compare los pronósticos obtenidos con la metodología de Holt-Winters con los obtenidos con el modelo SARIMA de la primera consultoría en una Tabla, mostrando las diferencias.
+
+```{r}
+#| label: tbl-comparativa
+
+#| layout-align: center
+sarima_w <- as.numeric(forecast(model_w_2, h = 12)$mean)
+hw_w     <- as.numeric(forecast_hw_w$mean)
+
+sarima_m <- as.numeric(forecast(model_m_auto, h = 12)$mean)
+hw_m     <- as.numeric(forecast_hw_m$mean)
+
+comparativa_pronosticos <- data.frame(
+  Mes = month.abb,
+  SARIMA_Mujeres     = round(sarima_w, 2),
+  HoltWinters_Mujeres = round(hw_w, 2),
+  SARIMA_Hombres     = round(sarima_m, 2),
+  HoltWinters_Hombres = round(hw_m, 2),
+  stringsAsFactors = FALSE
+)
+
+# Calcular las diferencias
+comparativa_pronosticos <- comparativa_pronosticos %>%
+  mutate(
+    Dif_Mujeres = SARIMA_Mujeres - HoltWinters_Mujeres,
+    Dif_Hombres = SARIMA_Hombres - HoltWinters_Hombres
+  )
+```
+
+```{r}
+#| echo: false
+
+# Renombramos columnas para ganar espacio
+tabla_corta <- comparativa_pronosticos
+names(tabla_corta) <- c("Mes", "SARIMA (M)", "HW (M)", "SARIMA (H)", "HW (H)", "Dif (M)", "Dif (H)")
+
+kable(tabla_corta, 
+      booktabs = TRUE,
+      align = "c",
+      caption = "Comparación de Pronósticos para 2026: SARIMA vs Holt-Winters") %>%
+  kable_styling(latex_options = c("striped", "hold_position"), 
+                full_width = FALSE,
+                position = "center") %>% 
+  footnote(general = "M: Mujeres, H: Hombres. Fuente: FRED.",
+           footnote_as_chunk = TRUE)
+```
+
+Se observa una convergencia significativa entre los modelos SARIMA y Holt-Winters, especialmente en la serie femenina, lo que otorga validez estadística a las proyecciones. Ambos métodos ratifican que el desempleo en 2025-2026 seguirá un patrón estacional clásico, con picos en el primer trimestre y una recuperación sostenida hacia el cierre del año, manteniendo una brecha de género persistente donde el desempleo femenino supera sistemáticamente al masculino en más de 300,000 personas mensuales.
+
+Aquí tienes el texto transcrito de forma exacta y estructurada para tu documento .qmd (Quarto). He respetado las negritas y el formato de la lista para que sea fácil de copiar y pegar.
+
+---
+
+## EJERCICIO 2 – Desagregación Temporal del PIB de Colombia
+
+Construya una base de datos del PIB real (año de referencia 2015) trimestral de Colombia (datos originales, sin desestacionalizar o ajuste calendario) para el periodo 2005:I – 2025:IV. Adicionalmente construya una base de datos del Índice de Seguimiento a la Economía (ISE) mensual (sin desestacionalizar) para el periodo 2005M1 – 2025M12.
+
+### a) Presente una gráfica de la serie del PIB real trimestral. Comente.
+
+```{r}
+
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+# Cargar datos del ISE mensual de Colombia
+ise_raw <- read_xlsx("anex-ISE-9actividades-dic2025.xlsx", 
+                     sheet = "Cuadro 1", 
+                     range = "B26:IS26", 
+                     col_names = FALSE) %>%
+  #ancho a largo
+  pivot_longer(cols = everything(), values_to = "value") %>%
+  # Creamos la columna de fecha mes a mes desde enero de 2005
+  mutate(date = seq(as.Date("2005-01-01"), by = "month", length.out = n())) %>%
+  # Seleccionamos y filtramos
+  select(date, value) %>%
+  filter(date >= as.Date("2005-01-01") & date <= as.Date("2025-12-31"))
+
+# Para usar en Chow-Lin, conviértelo a serie de tiempo (ts)
+ise_ts <- ts(ise_raw$value, start = c(2005, 1), frequency = 12)
+```
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+
+pib_raw <- read_xlsx("anex-ProduccionConstantes-IVtrim2025.xlsx",
+                     sheet = "Cuadro 1",
+                     range = "D29:CI29",
+                     col_names = FALSE) %>%
+    #formato largo
+    pivot_longer(cols = everything(), values_to = "value") %>%
+    # secuencia trimestral
+    mutate(date = seq(as.Date("2005-01-01"), by = "quarter", length.out = n())) %>%
+    select(date, value) %>%
+    # Filtro de seguridad
+    filter(date >= as.Date("2005-01-01") & date <= as.Date("2025-12-31"))
+
+#Convertir a objeto de serie de tiempo trimestral
+pib_ts <- ts(pib_raw$value, start = c(2005, 1), frequency = 4)
+```
+
+```{r}
+#| label: fig-pib
+
+library(ggplot2)
+ggplot(pib_raw, aes(x = date, y = value)) +
+  geom_line(color = "Yellow", size = 0.7) +
+  labs(
+    title = "PIB Real Trimestral de Colombia (2005-2025)",
+    x = "Año",
+    y = "PIB Real (año base 2015)",
+    caption = "Fuente: DANE"
+  ) +
+  theme_minimal(base_size = 9) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5, size = 8)
+  )
+```
+
+Podemos ver en la grafica como la serie tiene un claro componente de tendencia creciente y una estacionalidad marcada en el ultimo y primer trimestre de cada año. Además se puede observar la liguera caida del PIB en 2008 y la fuerte caida en 2020, que se recupera rapidamente en 2021. En general, la serie muestra un crecimiento sostenido a lo largo del tiempo, con fluctuaciones estacionales que reflejan patrones económicos típicos de Colombia.
+
+### b) Presente una gráfica de la serie del ISE mensual. Comente.
+
+```{r}
+#| label: fig-ise
+
+library(ggplot2)
+
+ggplot(ise_raw, aes(x = date, y = value)) +
+  geom_line(color = "blue", size = 0.7) +
+  labs(
+    title = "Índice de Seguimiento a la Economía (ISE) Mensual (2005-2025)",
+    x = "Año",
+    y = "ISE",
+    caption = "Fuente: DANE"
+  ) +
+  theme_minimal(base_size = 9) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5, size = 8)
+  )
+```
+
+Como podemos observar la grafica del ISE mensual muestra una tendencia creciente y una estacionalidad muy similar a la del PIB trimestral, con picos en el ultimo trimestre y una caida en el primer trimestre de cada año. Además, se pueden observar las desaceleración del ISE en 2008 y caida en  2020, que se recuperan rapidamente en 2009 y 2021 respectivamente. En general, la serie del ISE muestra un comportamiento similar al del PIB, lo que sugiere que el ISE puede ser un buen indicador para desagregar el PIB trimestral en una serie mensual utilizando métodos como el de Chow-Lin.
+
+### c) Utilice el método de Chow-Lin (sin variable indicadora) para transformar la serie trimestral en una serie mensual. Presente una gráfica de ambas series en el mismo gráfico (como se presentó en clase).
+
+```{r}
+#librería necesaria para el método de Chow-Lin
+library(tempdisagg)
+
+chow_lin_sin_ise <- td(pib_ts ~ 1, 
+                       method = "chow-lin-maxlog", 
+                       conversion = "sum", 
+                       to = "monthly")
+
+# Extraer la serie mensual resultante
+pib_mensual_sin_indicador<- predict(chow_lin_sin_ise)
+```
+
+```{r}
+#| fig-width: 12
+#| fig-height: 5
+
+# 1. Configurar la pantalla para tener 2 gráficos (1 fila, 2 columnas)
+par(mfrow = c(1, 2), mar = c(5, 4, 4, 2))
+
+# --- GRÁFICO 1: PIB TRIMESTRAL ---
+plot(pib_ts, 
+     type = "s", 
+     col = "red", 
+     lwd = 2,
+     main = "PIB Trimestral (Original)",
+     xlab = "Año", 
+     ylab = "Millones de Pesos",
+     frame.plot = FALSE)
+mtext("Fuente: DANE", side = 1, line = 3, adj = 1, cex = 0.7)
+
+# --- GRÁFICO 2: PIB MENSUALIZADO ---
+plot(pib_mensual_sin_indicador, 
+     type = "l", 
+     col = "blue", 
+     lwd = 2,
+     main = "PIB Mensual (Chow-Lin)",
+     xlab = "Año", 
+     ylab = "Millones de Pesos",
+     frame.plot = FALSE)
+mtext("Fuente: DANE", side = 1, line = 3, adj = 1, cex = 0.7)
+
+
+par(mfrow = c(1, 1))
+```
+
+### d) Utilice el método de Chow-Lin (con variable indicadora utilizando el ISE) para transformar la serie trimestral en una serie mensual. Presente una gráfica de ambas series en el mismo gráfico (como se presentó en clase).
+
+```{r}
+chow_lin_con_ise <- td(pib_ts ~ ise_ts, 
+                       method = "chow-lin-maxlog", 
+                       conversion = "sum", 
+                       to = "monthly")
+```
+
+```{r}
+#| fig-width: 12
+#| fig-height: 5
+
+# 1. Extraemos la serie del modelo con indicador
+pib_mensual_ise <- predict(chow_lin_con_ise)
+
+# 2. Configurar pantalla: 1 fila, 2 columnas
+par(mfrow = c(1, 2), mar = c(5, 4, 4, 2))
+
+# --- GRÁFICO 1: EL INDICADOR (ISE) ---
+plot(ise_ts, 
+     type = "l", 
+     col = "orange", 
+     lwd = 2,
+     main = "Indicador de Seguimiento (ISE)",
+     xlab = "Año", 
+     ylab = "Índice",
+     frame.plot = FALSE)
+mtext("Fuente: DANE", side = 1, line = 3, adj = 1, cex = 0.7)
+
+# --- GRÁFICO 2: PIB MENSUALIZADO (CON ISE) ---
+plot(pib_mensual_ise, 
+     type = "l", 
+     col = "darkgreen", 
+     lwd = 2,
+     main = "PIB Mensual (Chow-Lin + ISE)",
+     xlab = "Año", 
+     ylab = "Millones de Pesos",
+     frame.plot = FALSE)
+mtext("Fuente: Cálculos propios", side = 1, line = 3, adj = 1, cex = 0.7)
+
+
+par(mfrow = c(1, 1))
+```
+
+### e) Compare los gráficos del literal b) y el literal. Comente.
+
+Podemos observar que el gráfico del literal b) muestra la serie del ISE mensual, que tiene una tendencia creciente y una estacionalidad marcada, con picos en el último trimestre de cada año. En cambio, el gráfico del literal d) muestra la serie del PIB mensualizada utilizando el método de Chow-Lin con el ISE como variable indicadora. La serie del PIB mensualizada también muestra una tendencia creciente y una estacionalidad similar a la del ISE, lo que sugiere que el método de Chow-Lin ha logrado capturar las características estacionales y de tendencia presentes en la serie original del PIB trimestral. Además, se puede observar que los picos y valles en la serie mensualizada coinciden con los patrones observados en el ISE, lo que indica que el ISE ha sido un buen indicador para desagregar el PIB trimestral en una serie mensual. En resumen, ambos gráficos muestran series con tendencias crecientes y estacionalidades similares, lo que sugiere que el método de Chow-Lin con el ISE como variable indicadora ha sido efectivo para transformar la serie trimestral del PIB en una serie mensual coherente con las características observadas en el ISE.
+
+---
+
+## EJERCICIO 3 – Consultoría para el Ministerio de Comercio, Industria y Turismo
+
+Usted(es) han sido contratado(s) como consultor(es) por el Ministerio de Industria, Comercio y Turismo de una República Caribeña, para realizar un análisis económico detallado de los determinantes de la demanda de importaciones, en el cual se tendrán en cuenta el ingreso real y el precio de las importaciones. Este estudio será fundamental para la toma de decisiones sobre políticas de tarifas y negociación de acuerdos comerciales.
+
+La reunión de inicio de la consultoría fue para definir el modelo y las variables de interés, llegando a un consenso sobre el uso de la demanda de importaciones $(m_t)$, el ingreso real $(y_t)$ y el precio de las importaciones $(rp_t)$. También se determinó que el mejor modelo es uno que considere un rezago de la variable dependiente. Específicamente, se ha determinado que el modelo será:
+
+$$
+m_t = \beta_0 + \beta_1 y_t + \beta_3 rp_t + \beta_5 m_{t-1} + u_t
+$$
+
+Adicionalmente, el archivo **"import.xlsx"** contiene la información de las variables para el periodo trimestral comprendido entre **1999Q1 a 2019Q4**. Las variables están en logaritmo, ya que se ha definido que este es más útil para estimar elasticidades y efectos de corto y largo plazo en términos porcentuales.
+
+```{r}
+library(readxl)
+library(dplyr)
+library(stringr)
+library(zoo)
+
+import_data <- read_xlsx("2. import.xlsx") %>%
+  mutate(
+    period = str_trim(as.character(period)),
+    period = str_replace(period, "q", "Q"),
+    period = as.Date(as.yearqtr(period, format = "%YQ%q"))
+  )
+
+
+```
+
+### a)
+
+Estime el modelo por **MCO** y presente los resultados en una tabla ordenada.
+
+```{r}
+#estimar el modelo por MCO
+modelo_mco <- lm(m ~ y + rp + lag(m, 1), data = import_data)
+
+#Presentar los resultados en una tabla ordenada
+library(broom)
+model_summary <- tidy(modelo_mco) %>%
+  select(term, estimate, std.error, statistic, p.value) %>%
+  rename(
+    Variable = term,
+    Coeficiente = estimate,
+    Error_Estandar = std.error,
+    Estadistico_t = statistic,
+    Valor_p = p.value
+  )
+kable(model_summary, 
+      booktabs = TRUE, 
+      align = "c",
+      caption = "Resultados de la Estimación por MCO") %>%
+    kable_styling(latex_options = c("striped", "hold_position"), 
+                    full_width = F,
+                    font_size = 10) %>%
+    footnote(general = "Fuente: Elaboración propia con datos de import.xlsx.",
+                general_title = "", 
+                footnote_as_chunk = T)
+
+
+```
+
+### b)
+
+Escriba la ecuación del modelo estimado.
+
+$$
+m_t​=−0.6413+1.5218y_t​−0.6655rp_t​+0.2971m_{t−1}​ 
+$$
+
+### c)
+
+Interprete (Significado Económico) los coeficientes estimados.
+
+Los coeficientes estimados muestran que el ingreso real tiene un efecto positivo sobre la demanda de importaciones: un aumento de 1% en 
+𝑦
+y incrementa las importaciones en aproximadamente 1.52%, manteniendo lo demás constante. En cambio, el precio de las importaciones tiene un efecto negativo: un aumento de 1% en rp reduce las importaciones en cerca de 0.67%. Además, el coeficiente del rezago de las importaciones es positivo, lo que indica persistencia dinámica: el nivel pasado de importaciones influye positivamente sobre el nivel actual.
+
+### d)
+
+Determine además qué variables son estadísticamente significativas y a qué nivel de significancia.
+
+Todas las variables son estadísticamente significativas al nivel del 1%, ya que sus valores p son menores a 0.01. Menos el intercepto, lo que se puede interpretar como que el modelo no tiene un valor base de importaciones cuando el ingreso y el precio son cero, lo cual es lógico en este contexto económico.
+
+### e) Análisis de Impacto del Ingreso sobre las Importaciones  
+*(utilice la sustitución iterativa, y muestre TODO el proceso)*
+
+- Calcule el efecto inmediato de un incremento de un **1% en el ingreso $(y)$** sobre las importaciones $(m)$.
+- Calcule el efecto después de **un periodo**, **dos periodos**, y **en el largo plazo**.
+
+El efecto inmediato de un incremento de \(1\%\) en el ingreso \((y)\) sobre las importaciones \((m)\) es igual al coeficiente estimado de \(y_t\), es decir:
+
+$$
+\frac{\partial m_t}{\partial y_t} = \beta_1 = 1.5218
+$$
+
+Por tanto, en el corto plazo, un aumento de \(1\%\) en el ingreso real incrementa las importaciones en aproximadamente \(1.5218\%\).
+
+El efecto acumulado después de un periodo incorpora la persistencia dinámica generada por el rezago de la variable dependiente:
+
+$$
+\beta_1 + \beta_5 \beta_1
+$$
+
+Sustituyendo los valores estimados:
+
+$$
+1.5218 + (0.2971)(1.5218) = 1.5218 + 0.4522 = 1.9740
+$$
+
+Así, después de un periodo, el efecto acumulado de un aumento de \(1\%\) en el ingreso sobre las importaciones es de aproximadamente \(1.9740\%\).
+
+El efecto acumulado después de dos periodos se obtiene sumando el impacto adicional transmitido nuevamente por el rezago:
+
+$$
+\beta_1 + \beta_5 \beta_1 + \beta_5^2 \beta_1
+$$
+
+Equivalentemente:
+
+$$
+1.5218 + (0.2971)(1.9740)
+$$
+
+o de forma desarrollada,
+
+$$
+1.5218 + 0.4522 + 0.1344 = 2.1084
+$$
+
+Por tanto, después de dos periodos, el efecto acumulado es de aproximadamente \(2.1084\%\).
+
+Finalmente, el efecto de largo plazo se obtiene mediante la suma infinita de los efectos dinámicos:
+
+$$
+\frac{\beta_1}{1-\beta_5}
+=
+\frac{1.5218}{1-0.2971}
+=
+\frac{1.5218}{0.7029}
+\approx 2.1650
+$$
+
+En consecuencia, un incremento permanente de \(1\%\) en el ingreso real aumenta las importaciones en aproximadamente \(2.1650\%\) en el largo plazo.
+
+### f) Análisis de Impacto del Precio sobre las Importaciones  
+*(utilice la sustitución iterativa, y muestre TODO el proceso)*
+
+- Calcule el efecto inmediato de un incremento de un **1% en el precio $(rp)$** sobre las importaciones $(m)$.
+- Calcule el efecto después de **un periodo**, **dos periodos**, y **en el largo plazo**.
+
+
+El efecto inmediato de un incremento de \(1\%\) en el precio de las importaciones \((rp)\) sobre las importaciones \((m)\) es igual al coeficiente estimado de \(rp_t\), es decir:
+
+$$
+\frac{\partial m_t}{\partial rp_t} = \beta_3 = -0.6655
+$$
+
+Por tanto, en el corto plazo, un aumento de \(1\%\) en el precio de las importaciones reduce las importaciones en aproximadamente \(0.6655\%\).
+
+El efecto acumulado después de un periodo incorpora la persistencia dinámica generada por el rezago de la variable dependiente:
+
+$$
+\beta_3 + \beta_5 \beta_3
+$$
+
+Sustituyendo los valores estimados:
+
+$$
+-0.6655 + (0.2971)(-0.6655) = -0.6655 - 0.1977 = -0.8632
+$$
+
+Así, después de un periodo, el efecto acumulado de un aumento de \(1\%\) en el precio de las importaciones sobre \(m\) es de aproximadamente \(-0.8632\%\).
+
+El efecto acumulado después de dos periodos se obtiene sumando el impacto adicional transmitido nuevamente por el rezago:
+
+$$
+\beta_3 + \beta_5 \beta_3 + \beta_5^2 \beta_3
+$$
+
+Equivalentemente:
+
+$$
+-0.6655 + (0.2971)(-0.8632)
+$$
+
+o de forma desarrollada,
+
+$$
+-0.6655 - 0.1977 - 0.0587 = -0.9219
+$$
+
+Por tanto, después de dos periodos, el efecto acumulado es de aproximadamente \(-0.9219\%\).
+
+Finalmente, el efecto de largo plazo se obtiene mediante la suma infinita de los efectos dinámicos:
+
+$$
+\frac{\beta_3}{1-\beta_5}
+=
+\frac{-0.6655}{1-0.2971}
+=
+\frac{-0.6655}{0.7029}
+\approx -0.9468
+$$
+
+En consecuencia, un incremento permanente de \(1\%\) en el precio de las importaciones reduce las importaciones en aproximadamente \(0.9468\%\) en el largo plazo.
+
+### g)
+
+Ilustre gráficamente la evolución de estos efectos (**Ingreso y Precio**) a través del tiempo.
+
+- Muestre el efecto en una gráfica para al menos **10 periodos**.
+- Muestre el efecto acumulado en una gráfica para al menos **10 periodos**.
+
+```{r}
+library(ggplot2)
+
+beta1 <- 1.5218
+beta5 <- 0.2971
+
+df_ingreso_periodo <- data.frame(
+  Periodo = 0:10,
+  Efecto = beta1 * beta5^(0:10)
+)
+
+ggplot(df_ingreso_periodo, aes(x = Periodo, y = Efecto)) +
+  geom_line(color = "blue", linewidth = 1) +
+  geom_point(color = "blue", size = 2) +
+  labs(title = "Efecto del Ingreso sobre las Importaciones en cada periodo",
+       x = "Periodo",
+       y = "Efecto") +
+  theme_minimal()
+
+```
+
+Este gráfico muestra cómo el efecto del ingreso sobre las importaciones disminuye a lo largo del tiempo debido a la persistencia dinámica, pero sigue siendo positivo en cada periodo.
+
+```{r}
+library(ggplot2)
+
+beta1 <- 1.5218
+beta5 <- 0.2971
+
+df_ingreso <- data.frame(
+  Periodo = 0:10,
+  Efecto_Acumulado = sapply(0:10, function(t) beta1 * sum(beta5^(0:t)))
+)
+
+ggplot(df_ingreso, aes(x = Periodo, y = Efecto_Acumulado)) +
+  geom_line(color = "blue", linewidth = 1) +
+  geom_point(color = "blue", size = 2) +
+  labs(title = "Evolución del Efecto del Ingreso sobre las Importaciones",
+       x = "Periodo",
+       y = "Efecto acumulado") +
+  theme_minimal()
+```
+
+Este gráfico muestra cómo el efecto acumulado del ingreso sobre las importaciones aumenta a lo largo del tiempo, acercándose al efecto de largo plazo a medida que se suman los efectos de cada periodo.
+
+---
+
+### h)
+
+Pruebe las siguientes hipótesis:
+
+- La elasticidad de largo plazo de las importaciones con respecto al **ingreso** es igual a **uno**.
+- La elasticidad de largo plazo de las importaciones con respecto al **precio** es igual a **menos uno**.
+
+Para probar estas hipótesis, se puede utilizar la función `linearHypothesis` del paquete `car` en R, que permite realizar pruebas de hipótesis sobre los coeficientes de un modelo lineal.
+
+```{r}
+import_data <- import_data %>%
+  mutate(m_lag = lag(m, 1))
+
+modelo_mco <- lm(m ~ y + rp + m_lag, data = import_data)
+
+library(car)
+
+hypothesis_ingreso <- linearHypothesis(modelo_mco, "y + m_lag = 1", test = "F")
+hypothesis_precio  <- linearHypothesis(modelo_mco, "rp - m_lag = -1", test = "F")
+
+hypothesis_ingreso
+hypothesis_precio
+```
+
+
+Con base en las pruebas de hipótesis realizadas, se rechaza la hipótesis nula de que la elasticidad de largo plazo de las importaciones con respecto al ingreso sea igual a uno, ya que el valor-p obtenido fue \(0.005407\), inferior al nivel de significancia del \(5\%\). En consecuencia, existe evidencia estadística para concluir que la elasticidad-ingreso de largo plazo es diferente de uno.
+
+Por otro lado, no se rechaza la hipótesis nula de que la elasticidad de largo plazo de las importaciones con respecto al precio sea igual a menos uno, dado que el valor-p fue \(0.7986\), muy superior a los niveles convencionales de significancia. Por tanto, no existe evidencia estadística para afirmar que la elasticidad-precio de largo plazo sea distinta de \(-1\).
+
+En términos económicos, estos resultados sugieren que, en el largo plazo, la demanda de importaciones responde al ingreso de manera significativamente distinta a la unidad, mientras que la respuesta frente al precio es estadísticamente compatible con una elasticidad unitaria en valor absoluto.
+
+$$
+H_0:\ \frac{\beta_1}{1-\beta_5}=1
+\qquad \text{vs} \qquad
+H_1:\ \frac{\beta_1}{1-\beta_5}\neq 1
+$$
+
+$$
+p\text{-valor}=0.005407<0.05
+\quad \Rightarrow \quad
+\text{Se rechaza } H_0
+$$
+
+$$
+H_0:\ \frac{\beta_3}{1-\beta_5}=-1
+\qquad \text{vs} \qquad
+H_1:\ \frac{\beta_3}{1-\beta_5}\neq -1
+$$
+
+$$
+p\text{-valor}=0.7986>0.05
+\quad \Rightarrow \quad
+\text{No se rechaza } H_0
+$$
+
+
+---
+
+## EJERCICIO 4 – Asistente de Investigación del Proyecto “Ley de Okun en América Latina”
+
+La Facultad de Economía de la Universidad Caribeña, está desarrollando un proyecto de investigación sobre la Ley de Okun para un conjunto de economías en desarrollo de América Latina, y lo(s) ha contratado a usted(es) para ser asistente(s) de investigación.
+
+La ley de Okun relaciona la variación de la tasa de desempleo y el crecimiento de la producción. Una manera de plantear esta relación es a través de la siguiente ecuación (modelo de brechas)
+
+$$
+(u_t - u_t^*) = -\beta (\Delta y_t - \Delta y_t^*)
+$$
+
+Esto implica que la desviación anual de la tasa de desempleo con respecto a su tasa natural $$ (u_t - u_t^*) $$, está relacionada con la desviación anual $$ (\Delta y_t - \Delta y_t^*) $$ del crecimiento del PIB real $$ (\Delta y_t) $$. Utilizando los datos del archivo “Okun 80-24.xlsx”, que contiene información de la tasa de desempleo (U) y de la tasa de crecimiento del PIB real (G) para 5 países de América Latina, realice lo siguiente:
+
+### a) Calcule la tasa normal (tendencial) de crecimiento del PIB y la serie cíclica (utilizando el filtro de Hodrick-Prescott). Grafique los valores para cada país.
+
+```{r}
+library(readxl)
+data_okun <- read_xlsx("3. Okun80_23.xlsx")
+
+```
+
+```{r}
+library(mFilter)
+
+par(mfrow = c(3, 2), mar = c(4, 4, 2, 1))
+
+# --- ARGENTINA ---
+hp_arg <- hpfilter(data_okun$ARG_G, freq = 100)
+plot(data_okun$YEAR, data_okun$ARG_G, type = "l", col = "gray", 
+     main = "Argentina", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_arg$trend, col = "blue", lwd = 2)
+
+# --- BOLIVIA ---
+hp_bol <- hpfilter(data_okun$BOL_G, freq = 100)
+plot(data_okun$YEAR, data_okun$BOL_G, type = "l", col = "gray", 
+     main = "Bolivia", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_bol$trend, col = "darkgreen", lwd = 2)
+
+# --- COLOMBIA ---
+hp_col <- hpfilter(data_okun$COL_G, freq = 100)
+plot(data_okun$YEAR, data_okun$COL_G, type = "l", col = "gray", 
+     main = "Colombia", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_col$trend, col = "red", lwd = 2)
+
+# --- MÉXICO ---
+hp_mex <- hpfilter(data_okun$MEX_G, freq = 100)
+plot(data_okun$YEAR, data_okun$MEX_G, type = "l", col = "gray", 
+     main = "México", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_mex$trend, col = "purple", lwd = 2)
+
+# --- PERÚ ---
+hp_per <- hpfilter(data_okun$PER_G, freq = 100)
+plot(data_okun$YEAR, data_okun$PER_G, type = "l", col = "gray", 
+     main = "Perú", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_per$trend, col = "orange", lwd = 2)
+```
+
+
+En estas grafica se puede observar la serie original de crecimiento del PIB real para cada país (en gris) y la tasa normal (tendencial) de crecimiento obtenida mediante el filtro de Hodrick-Prescott (en color). La serie cíclica se puede obtener restando la tendencia a la serie original, lo que nos permitirá analizar las desviaciones del crecimiento respecto a su tendencia a lo largo del tiempo.
+
+### b) Calcule la tasa natural (tendencial) de desempleo y la serie cíclica (utilizando el filtro de Hodrick-Prescott). Grafique los valores para cada país.
+
+
+```{r}
+
+par(mfrow = c(3, 2), mar = c(4, 4, 2, 1))
+
+# --- ARGENTINA ---
+
+hp_arg_u <- hpfilter(data_okun$ARG_U, freq = 100)
+plot(data_okun$YEAR, data_okun$ARG_U, type = "l", col = "gray", 
+     main = "Argentina", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_arg_u$trend, col = "blue", lwd = 2)
+
+# --- BOLIVIA ---
+hp_bol_u <- hpfilter(data_okun$BOL_U, freq = 100)
+plot(data_okun$YEAR, data_okun$BOL_U, type = "l", col = "gray", 
+     main = "Bolivia", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_bol_u$trend, col = "darkgreen", lwd = 2)
+# --- COLOMBIA ---
+hp_col_u <- hpfilter(data_okun$COL_U, freq = 100)
+plot(data_okun$YEAR, data_okun$COL_U, type = "l", col = "gray", 
+     main = "Colombia", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_col_u$trend, col = "red", lwd = 2)
+# --- MÉXICO ---
+hp_mex_u <- hpfilter(data_okun$MEX_U, freq = 100)
+plot(data_okun$YEAR, data_okun$MEX_U, type = "l", col = "gray", 
+     main = "México", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_mex_u$trend, col = "purple", lwd = 2)
+# --- PERÚ ---
+hp_per_u <- hpfilter(data_okun$PER_U, freq = 100)
+plot(data_okun$YEAR, data_okun$PER_U, type = "l", col = "gray", 
+     main = "Perú", xlab = "Año", ylab = "%")
+lines(data_okun$YEAR, hp_per_u$trend, col = "orange", lwd = 2)
+```
+
+Ahora en estas gráficas se puede observar la serie original de la tasa de desempleo para cada país (en gris) y la tasa natural (tendencial) de desempleo obtenida mediante el filtro de Hodrick-Prescott (en color). La serie cíclica se puede obtener restando la tendencia a la serie original, lo que nos permitirá analizar las desviaciones del desempleo respecto a su tendencia a lo largo del tiempo.
+
+### c) Elabore un gráfico de dispersión que muestre la relación establecida en la ecuación (1). Comente.
+
+Para elaborar el gráfico de dispersión que muestre la relación establecida en la ecuación (1), se deben calcular las desviaciones cíclicas de la tasa de desempleo y del crecimiento del PIB real para cada país, utilizando las series cíclicas obtenidas en los literales anteriores. Luego, se puede graficar la desviación de la tasa de desempleo en el eje vertical y la desviación del crecimiento del PIB real en el eje horizontal.
+
+```{r}
+par(mfrow = c(3, 2), mar = c(4, 5, 2, 1))
+# --- ARGENTINA ---
+u_cic_arg <- data_okun$ARG_U - hp_arg_u$trend
+y_cic_arg <- data_okun$ARG_G - hp_arg$trend
+plot(y_cic_arg, u_cic_arg, main = "Argentina", xlab = "Desviación del crecimiento del PIB", ylab =  "Des tasa de desempleo", col = "blue", pch = 16)
+# --- BOLIVIA ---
+u_cic_bol <- data_okun$BOL_U - hp_bol_u$trend
+y_cic_bol <- data_okun$BOL_G - hp_bol$trend
+plot(y_cic_bol, u_cic_bol, main = "Bolivia", xlab = "Desviación del crecimiento del PIB", ylab =  "Des tasa de desempleo", col = "darkgreen", pch = 16)
+# --- COLOMBIA ---
+u_cic_col <- data_okun$COL_U - hp_col_u$trend
+y_cic_col <- data_okun$COL_G - hp_col$trend
+plot(y_cic_col, u_cic_col, main = "Colombia", xlab = "Desviación del crecimiento del PIB", ylab =  "Des tasa de desempleo", col = "red", pch = 16)
+# --- MÉXICO ---
+u_cic_mex <- data_okun$MEX_U - hp_mex_u$trend
+y_cic_mex <- data_okun$MEX_G - hp_mex$trend
+plot(y_cic_mex, u_cic_mex, main = "México", xlab = "Desviación del crecimiento del PIB", ylab =  "Des tasa de desempleo", col = "purple", pch = 16)
+# --- PERÚ ---
+u_cic_per <- data_okun$PER_U - hp_per_u$trend
+y_cic_per <- data_okun$PER_G - hp_per$trend
+plot(y_cic_per, u_cic_per, main = "Perú", xlab = "Desviación del crecimiento del PIB", ylab = "Des tasa de desempleo", col = "orange", pch = 16)
+```
+
+En estos gráficos de dispersión se puede observar la relación entre las desviaciones cíclicas de la tasa de desempleo y del crecimiento del PIB real para cada país. En general, se espera observar una relación negativa, es decir, que cuando el crecimiento del PIB real está por encima de su tendencia (desviación positiva), la tasa de desempleo tiende a estar por debajo de su tendencia (desviación negativa), y viceversa. Esta relación es consistente con la Ley de Okun, que establece que un crecimiento económico más fuerte suele estar asociado con una reducción en el desempleo.
+
+
+### d) Utilizando un modelo de regresión como el siguiente, calcule el coeficiente de Okun para cada país e interprete dicho valor. ¿Es estadísticamente significativo? Para cuales países si para cuáles no. Presente los resultados en una tabla.
+
+$$
+\Delta u_t = \beta (\Delta y_t - \Delta y_t^*) + \varepsilon_t
+$$
+
+Para realizar la regresión y calcular el coeficiente de Okun para cada país, se debe estimar el modelo de regresión utilizando las desviaciones cíclicas del crecimiento del PIB real como variable independiente y las variaciones de las desviaciones cíclicas de la tasa de desempleo como variable dependiente. Luego, se puede interpretar el coeficiente estimado y evaluar su significancia estadística.
+
+Para hacer mas eficiente el proceso, se puede utilizar un bucle para estimar el modelo para cada país y almacenar los resultados en una tabla.
+
+```{r}
+
+modelos <- list()
+paises <- c("Argentina", "Bolivia", "Colombia", "México", "Perú")
+
+# Calculamos cada modelo 
+mod_arg <- lm(u_cic_arg ~ y_cic_arg)
+mod_bol <- lm(u_cic_bol ~ y_cic_bol)
+mod_col <- lm(u_cic_col ~ y_cic_col)
+mod_mex <- lm(u_cic_mex ~ y_cic_mex)
+mod_per <- lm(u_cic_per ~ y_cic_per)
+
+# Función rápida para extraer datos clave
+extraer_datos <- function(modelo) {
+  resumen <- summary(modelo)
+  beta <- resumen$coefficients[2, 1]
+  p_val <- resumen$coefficients[2, 4]
+  list(beta = round(beta, 4), p_val = round(p_val, 4))
+}
+
+# Consolidar en una tabla
+res_arg <- extraer_datos(mod_arg)
+res_bol <- extraer_datos(mod_bol)
+res_col <- extraer_datos(mod_col)
+res_mex <- extraer_datos(mod_mex)
+res_per <- extraer_datos(mod_per)
+
+
+library(knitr)
+
+tabla_okun <- data.frame(
+  "Pais" = c("Argentina", "Bolivia", "Colombia", "México", "Perú"),
+  "Beta" = c(res_arg$beta, res_bol$beta, res_col$beta, res_mex$beta, res_per$beta),
+  "P_Valor" = c(res_arg$p_val, res_bol$p_val, res_col$p_val, res_mex$p_val, res_per$p_val),
+  "Significativo" = ifelse(c(res_arg$p_val, res_bol$p_val, res_col$p_val, res_mex$p_val, res_per$p_val) < 0.05, "Sí", "No")
+)
+
+
+kable(tabla_okun, 
+      caption = "Tabla 1: Estimación del Coeficiente de Okun por País",
+      
+      align = c('l', 'c', 'c', 'c'), 
+      col.names = c("País", "Coeficiente de Okun (β)", "P-Valor", "Significancia (5%)"),
+      digits = 4)
+```
+
+Como podemos ver todos los modelos son significativos al 5%, ademas que todos los coeficientes de Okun son negativos, lo que es consistente con la teoría económica que establece que un aumento en el crecimiento del PIB real (desviación positiva) está asociado con una disminución en la tasa de desempleo (desviación negativa), y viceversa. Sin embargo, la magnitud del coeficiente varía entre los países, lo que sugiere que la relación entre el crecimiento económico y el desempleo puede ser más fuerte en algunos países que en otros.
+Por ejemplo en Colombia esta relación es de -0.30, lo que indica que un aumento de 1 punto porcentual en la desviación del crecimiento del PIB real se asocia con una disminución de 0.30 puntos porcentuales en la desviación de la tasa de desempleo. En contraste, en México el coeficiente es de -0.08, lo que sugiere una relación más débil entre el crecimiento económico y el desempleo en ese país.
+
+
+### e) Pruebe si cada modelo estimado cumple con los supuestos del modelo de regresión lineal (No Autocorrelación, Homoscedasticidad, Normalidad). Presente los resultados estimados en una Tabla para cada país.
+
+Para probar si cada modelo estimado cumple con los supuestos del modelo de regresión lineal, se pueden realizar la siguiente tabla con los resultados de las pruebas de autocorrelación, homoscedasticidad y normalidad para cada país:
+
+```{r}
+
+library(car)    
+library(lmtest)
+library(knitr)
+
+
+probar_supuestos <- function(modelo) {
+  
+  # Prueba de autocorrelación (Durbin-Watson de la librería lmtest)
+  # H0: No hay autocorrelación
+  dw_test <- dwtest(modelo)
+  
+  # Prueba de homoscedasticidad (Breusch-Pagan de lmtest)
+  # H0: Hay homoscedasticidad (varianza constante)
+  bp_test <- bptest(modelo)
+  
+  # Prueba de normalidad (Shapiro-Wilk)
+  # H0: Los residuos siguen una distribución normal
+  shapiro_test <- shapiro.test(residuals(modelo))
+  
+  # Nota: En p-valor < 0.05 RECHAZAMOS la hipótesis nula (H0)
+  list(
+    Autocorrelacion = ifelse(dw_test$p.value < 0.05, "Presencia", "Ausencia"),
+    Homoscedasticidad = ifelse(bp_test$p.value < 0.05, "No (Hetero)", "Sí (Homo)"),
+    Normalidad = ifelse(shapiro_test$p.value < 0.05, "No", "Sí")
+  )
+}
+
+resultados_arg <- probar_supuestos(mod_arg)
+resultados_bol <- probar_supuestos(mod_bol)
+resultados_col <- probar_supuestos(mod_col)
+resultados_mex <- probar_supuestos(mod_mex)
+resultados_per <- probar_supuestos(mod_per)
+
+
+tabla_supuestos <- data.frame(
+  "Pais" = c("Argentina", "Bolivia", "Colombia", "México", "Perú"),
+  "Autocorrelación" = c(resultados_arg$Autocorrelacion, resultados_bol$Autocorrelacion, 
+                         resultados_col$Autocorrelacion, resultados_mex$Autocorrelacion, 
+                         resultados_per$Autocorrelacion),
+  "Homoscedasticidad" = c(resultados_arg$Homoscedasticidad, resultados_bol$Homoscedasticidad, 
+                          resultados_col$Homoscedasticidad, resultados_mex$Homoscedasticidad, 
+                          resultados_per$Homoscedasticidad),
+  "Normalidad" = c(resultados_arg$Normalidad, resultados_bol$Normalidad, 
+                   resultados_col$Normalidad, resultados_mex$Normalidad, 
+                   resultados_per$Normalidad)
+)
+
+#Generar la tabla 
+kable(tabla_supuestos, 
+      caption = "Tabla 2: Diagnóstico de Supuestos de los Modelos de Okun",
+      align = c('l', 'c', 'c', 'c'), 
+      col.names = c("País", "Autocorrelación", "Homoscedasticidad", "Normalidad"))
+```
+
+
+Interpretación de los Diagnósticos de SupuestosEl análisis de los supuestos para los modelos de la Ley de Okun en los cinco países revela hallazgos críticos para la validez de las estimaciones:Autocorrelación:
+ 
+- Se observa presencia de autocorrelación en todos los países. Esto es un fenómeno típico en series de tiempo económicas, donde los choques en el mercado laboral de un año tienden a persistir en el siguiente. Para tu investigación, esto implica que, aunque los coeficientes $\beta$ calculados son consistentes, los errores estándar podrían estar subestimados, inflando artificialmente la significancia estadística.
+
+- Homoscedasticidad: Todos los modelos cumplen con el supuesto de varianza constante (homoscedasticidad). Esto es un punto positivo, ya que indica que la precisión de nuestras predicciones sobre el desempleo no varía sistemáticamente según el tamaño del crecimiento económico.
+
+- Normalidad: Los residuos de Argentina y México siguen una distribución normal, validando las pruebas de hipótesis clásicas. Sin embargo, en Bolivia, Colombia y Perú, el supuesto de normalidad no se cumple. Esto sugiere la presencia de valores atípicos (outliers) o una estructura de datos más compleja, lo que recomienda cautela al interpretar los p-valores en estos casos específicos, especialmente en muestras pequeñas.
+
+Gracias, en el siguiente link se encuentra el código completo [link](link)
