@@ -1257,4 +1257,4 @@ Interpretación de los Diagnósticos de SupuestosEl análisis de los supuestos p
 
 - Normalidad: Los residuos de Argentina y México siguen una distribución normal, validando las pruebas de hipótesis clásicas. Sin embargo, en Bolivia, Colombia y Perú, el supuesto de normalidad no se cumple. Esto sugiere la presencia de valores atípicos (outliers) o una estructura de datos más compleja, lo que recomienda cautela al interpretar los p-valores en estos casos específicos, especialmente en muestras pequeñas.
 
-Gracias, en el siguiente link se encuentra el código completo [link](link)
+Gracias, en el siguiente link se encuentra el código completo [link](https://github.com/juan-moreno31/TopicosEconometria/blob/cab08e1e423a264c058c21626392e5c367dc5afc/1TallerParcial.qmd)
