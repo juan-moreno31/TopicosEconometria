@@ -1,0 +1,14 @@
+# 1. Ignorar todo por defecto
+*
+
+# 2. Permitir el archivo .gitignore (siempre es bueno tenerlo trackeado)
+!.gitignore
+
+# 3. Excepciones: Los únicos archivos que Git debe ver
+!1TallerParcial.qmd
+!1TallerParcial.pdf
+!anex-ISE-9actividades-dic2025.xlsx
+!anex-ProduccionConstantes-IVtrim2025.xlsx
+!3. Okun80_23.xlsx
+!2. import.xlsx
+!taller5.qmd

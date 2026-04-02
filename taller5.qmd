@@ -1,0 +1,1011 @@
+---
+title: "Taller 5: Modelos para volatilidad"
+subtitle: "Tópicos en Econometría"
+author:
+  - name: "Juan Diego Moreno Sánchez"
+    email: "juan.moreno31@est.uexternado.edu.co"
+date: "`r Sys.Date()`"
+profesor: "Jacobo Campo Robledo"
+
+format:
+  pdf:
+    latex-engine: xelatex
+    papersize: letter
+    geometry:
+      - top=30mm
+      - left=25mm
+      - right=25mm
+      - bottom=30mm
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+    toc: false
+    toc-title: "Contenido"
+    toc-depth: 1
+    number-sections: true
+    colorlinks: true
+
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+## EJERCICIO 1 - Modelo ARCH-GARCH
+
+Suponga que usted estimó un modelo ARIMA(0,1,0)-GARCH(1,1) para el retorno de un activo y obtuvo el siguiente resultado
+
+$$
+R_t = 0.002814 + \varepsilon_t
+$$
+
+$$
+\sigma_t^2 = 0.00000954 + 0.022641 \varepsilon_{t-1}^2 + 0.963511 \sigma_{t-1}^2
+$$
+
+Suponga que la rentabilidad del día anterior fue del 2% y que la volatilidad estimada ($\sigma_{t-1}$) para dicha fecha fue del 4%. Halle la volatilidad (desviación estándar) pronosticada con el modelo GARCH(1,1) para el día $(t)$.
+$$
+\epsilon_{t-1} = R_{t-1} - \mu = -0.01 - 0.0015 = -0.0115
+$$
+
+$$
+\sigma_t^2 = \omega + \alpha \epsilon_{t-1}^2 + \beta \sigma_{t-1}^2
+$$
+
+$$
+\sigma_t^2 = 0.00000310 + 0.0458 \times (-0.0115)^2 + 0.9412 \times (0.03)^2
+$$
+
+$$
+\sigma_t^2 = 0.00000310 + 0.0458 \times 0.00013225 + 0.9412 \times 0.0009
+$$
+
+$$
+\sigma_t^2 = 0.00000310 + 0.00000606 + 0.00084708
+$$
+
+$$
+\sigma_t^2 = 0.00085624
+$$
+
+$$
+\sigma_t = \sqrt{0.00085624} \approx 0.029261 \approx 2.9261\%
+$$
+
+Esto se interpreta como que la volatilidad pronosticada para el día $t$ es aproximadamente del 2.9261%, lo que indica una alta volatilidad en el retorno del activo para ese día.
+
+Además, se puede observar que el modelo GARCH(1,1) captura la persistencia en la volatilidad, ya que el coeficiente $\beta$ es bastante alto (0.9412), lo que sugiere que la volatilidad del día anterior tiene un impacto significativo en la volatilidad del día actual.
+
+## EJERCICIO 2 – Modelo ARIMA-GARCH
+
+El archivo "*QUARTERLY.xls*" contiene variables macro y financieras trimestrales para
+EE.UU, durante el periodo 1960Q1 y 2012Q4. El diferencial entre una tasa de interés a
+largo plazo y una tasa de interés a corto plazo, se conoce como el *spread* de la tasa de
+interés. Específicamente, el diferencial "*spread*" de tasas de interés (s) puede calcularse
+como la diferencia entre la tasa de interés en los Estados Unidos a 5 años y la tasa de los
+bonos del tesoro a 3 meses. En la base de datos, estas variables se llaman "*r5*" y "*tbill*",
+respectivamente. Con estos datos realice lo siguiente:
+
+**a)** Calcule el spread $s = r5 - tbill$, y grafique la serie.
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(zoo)
+# Cargar los datos
+data <- read_excel("2. quarterly.xls")
+
+# arreglar la columna DATE
+data$DATE <- as.Date(as.yearqtr(data$DATE, format = "%YQ%q"), frac = 0) 
+data <- data |> rename(date = DATE)
+```
+
+```{r}
+# Calcular el spread
+data$spread <- data$r5 - data$Tbill
+# Graficar la serie del spread
+ggplot(data, aes(x = date, y = spread)) +
+  geom_line(color = "blue") +
+  labs(title = "Spread de Tasas de Interés (r5 - Tbill)",
+       x = "Fecha",
+       y = "Spread") +
+  theme_minimal()
+```
+
+Como podemos ver en la grafica el spread de la tasa de tiende a acercarse a uno, lo que sugiere que las tasas de interés a largo plazo y a corto plazo tienden a converger con el tiempo. Sin embargo, también se observan períodos de divergencia, especialmente durante crisis económicas o cambios en la política monetaria, donde el spread puede aumentar significativamente.
+
+\newpage
+
+**b)** ¿Es una serie estacionaria? Utilice la prueba ADF.
+
+```{r}
+library(tseries)
+# Prueba ADF para el spread
+adf_test <- adf.test(data$spread, alternative = "stationary")
+adf_test
+```
+
+Podemos ver que la serie si es estacionaria, ya que el valor p es menor a 0.05, lo que nos permite rechazar la hipótesis nula de no estacionariedad. Esto sugiere que el spread de las tasas de interés tiene una media y varianza constantes a lo largo del tiempo.
+
+**c)** Determine el mejor Proceso Generador de Datos (PGD) del Spread utilizando la
+metodología de Box-Jenkins. Presente todo lo necesario, FACS y FACP, estimación del
+modelo, las pruebas, la ecuación del modelo estimado. *Pista: Estime un
+ARIMA(2,0,(1,7)).*
+
+```{r}
+library(forecast)
+
+# ACF y PACF
+par(mfrow = c(1,2))
+acf(data$spread, main = "FAC del Spread")
+pacf(data$spread, main = "FACP del Spread")
+```
+
+En estas graficas se puede observar que el FAC tiene una caida progresiva hasta el lag 7, mientras que el FACP tiene un corte en el lag 2, lo que sugiere que un modelo ARIMA(2,0,1) podría ser adecuado para modelar la serie del spread. Sin embargo, lo que sugiere que podríamos considerar un modelo ARIMA(2,0,(1,7)) para capturar mejor la dinámica de la serie.
+
+```{r}
+auto_model <- auto.arima(data$spread, seasonal = FALSE)
+summary(auto_model)
+
+# ARIMA(2,0,(1,7)) indicado por el profesor
+arima_model <- Arima(data$spread, 
+                     order = c(2, 0, 7),
+                     fixed = c(NA, NA,   # AR1, AR2
+                               NA, 0, 0, 0, 0, 0, NA,  # MA1..MA7
+                               NA))      # intercepto
+
+summary(arima_model)
+
+cat("El auto ARIMA tiene un AIC de ", AIC(arima_model), "\n")
+cat("El auto ARIMA tiene un AIC de ", AIC(auto_model), "\n")
+
+```
+
+Podemos observar que el modelo ARIMA(2,0,(1,7)) tiene un AIC de 282.7598, mientras que el modelo seleccionado automáticamente por auto.arima() tiene un AIC de 290.819. Esto sugiere que el modelo ARIMA(2,0,(1,7)) es una mejor opción para modelar la serie del spread en comparación con el modelo seleccionado automáticamente.
+
+**d)** Muestre que existe efecto ARCH en el modelo ARIMA seleccionado.
+
+Para mostrar que existe efecto ARCH en el modelo ARIMA seleccionado, podemos realizar la prueba de Engle para detectar la presencia de heterocedasticidad condicional en los residuos del modelo ARIMA.
+
+```{r}
+library(FinTS)
+# Prueba de Engle para detectar efecto ARCH
+arch_test <- ArchTest(residuals(arima_model), lags = 12)
+arch_test
+```
+
+En la prueba de Engle obtuve un valor p de practicamente cero, lo que indica que podemos rechazar la hipótesis nula de no existencia de efecto ARCH. Esto sugiere que los residuos del modelo ARIMA seleccionado presentan heterocedasticidad condicional, lo que justifica la necesidad de modelar la varianza condicional utilizando un modelo GARCH para capturar esta característica en los datos.
+
+**e)** Determine el mejor modelo ARIMA-GARCH para representar la media y la varianza
+condicional del Spread. *Pista: Estime un ARIMA(2,0,1)-GARCH(1,1). El coeficiente MA(7) deja de ser significativo cuando modelamos la varianza, es la razón por la que
+ya no está.*
+
+```{r}
+library(rugarch)
+spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(2, 1), include.mean = TRUE)
+)
+
+garch_model <- ugarchfit(spec = spec, data = data$spread)
+round(garch_model@fit$matcoef, 6)
+```
+
+La estimación del modelo ARIMA(2,0,1)-GARCH(1,1) muestra que la mayoría de los coeficientes son estadísticamente significativos al 1%. Las excepciones son $\phi_2 = 0.2202$ (p-valor $= 0.1000$) y $\omega = 0.0082$ (p-valor $= 0.1615$), cuya falta de significancia es habitual al introducir la ecuación de varianza, pues esta absorbe parte de la dinámica que antes recaía en la media.
+
+En la ecuación de la media, $\mu = 1.1074$ confirma un spread promedio positivo. Los coeficientes $\phi_1 = 0.5852$ y $\theta_1 = 0.6051$ son significativos, capturando la persistencia de corto plazo en el nivel del spread.
+
+En la ecuación de la varianza, $\alpha = 0.1925$ refleja una reacción moderada ante shocks recientes, mientras que $\beta = 0.7869$ indica alta persistencia en la volatilidad. La suma $\alpha + \beta = 0.9793$ es cercana a la unidad, confirmando que los episodios de alta volatilidad en el spread se disipan lentamente.
+
+**f)** Muestre que en el modelo ARIMA-GARCH seleccionado ya no existe efecto ARCH.
+
+Para mostrar que en el modelo ARIMA-GARCH seleccionado ya no existe efecto ARCH, podemos realizar nuevamente la prueba de Engle para detectar la presencia de heterocedasticidad condicional en los residuos del modelo GARCH.
+
+```{r}
+# Prueba de Engle para detectar efecto ARCH en los residuos del modelo GARCH
+garch_residuals <- residuals(garch_model, standardize = TRUE)
+arch_test_garch <- ArchTest(garch_residuals, lags = 12)
+arch_test_garch
+```
+
+La prueba ARCH-LM aplicada sobre los residuos estandarizados del modelo 
+ARIMA(2,0,1)-GARCH(1,1) arroja un estadístico $\chi^2 = 14.931$ con 12 
+grados de libertad y un p-valor de $0.2452$, por lo que **no se rechaza** 
+la hipótesis nula de ausencia de efectos ARCH. Esto confirma que el modelo GARCH(1,1) logró capturar completamente la heterocedasticidad condicional presente en los residuos del ARIMA, validando la especificación adoptada.
+
+**g)** Escriba las ecuaciones del modelo (de la media y de la varianza).
+
+Las ecuaciones del modelo ARIMA(2,0,1)-GARCH(1,1) estimado son las siguientes:
+
+**Ecuación de la media:**
+$$
+s_t = 1.1074 + 0.5852 \, s_{t-1} + 0.2202^* \, s_{t-2} + 0.6051 \, \varepsilon_{t-1} + \varepsilon_t
+$$
+
+**Ecuación de la varianza:**
+$$
+\sigma_t^2 = 0.0082^* + 0.1925 \, \varepsilon_{t-1}^2 + 0.7869 \, \sigma_{t-1}^2
+$$
+
+donde $\varepsilon_t = \sigma_t z_t$, con $z_t \sim N(0,1)$. Los coeficientes 
+marcados con $*$ no son estadísticamente significativos al 5%.
+
+**h)** Calcule la Varianza Condicional y presente la gráfica.
+
+```{r}
+# Extraer la varianza condicional del modelo GARCH
+data$conditional_variance <- as.numeric(sigma(garch_model)^2)
+
+# Graficar la varianza condicional
+ggplot(data, aes(x = date, y = conditional_variance)) +
+  geom_line(color = "red") +
+  labs(title = "Varianza Condicional del Spread",
+       x = "Fecha",
+       y = "Varianza Condicional") +
+  theme_minimal()
+```
+
+En la gráfica de la varianza condicional del spread se puede observar que alrededor de 1983 se presenta un pico muy alto, lo que indica un período de alta volatilidad en el spread de las tasas de interés.
+
+**i)** Elabore un pronóstico del rendimiento medio esperado (media) y la volatilidad esperada
+(varianza) para el año 2013 (cuatro trimestres).
+
+```{r}
+# Pronóstico 4 trimestres adelante (año 2013)
+forecast_garch <- ugarchforecast(garch_model, n.ahead = 4)
+
+# Extraer media y varianza pronosticada
+media_forecast    <- as.numeric(fitted(forecast_garch))
+varianza_forecast <- as.numeric(sigma(forecast_garch)^2)
+
+# Tabla de resultados
+trimestres <- c("2013Q1", "2013Q2", "2013Q3", "2013Q4")
+
+resultados <- data.frame(
+  Trimestre = trimestres,
+  Media     = round(media_forecast, 6),
+  Varianza  = round(varianza_forecast, 6),
+  Volatilidad = round(sqrt(varianza_forecast) * 100, 4)
+)
+
+print(resultados)
+```
+
+El pronóstico para 2013 muestra que el spread esperado crece trimestre 
+a trimestre desde $0.69$ en 2013Q1 hasta $0.85$ en 2013Q4, convergiendo 
+gradualmente hacia su media histórica de $1.11$. Por su parte, la 
+volatilidad aumenta de $29.61\%$ a $32.64\%$ a lo largo del año, 
+lo que refleja la alta persistencia del modelo ($\alpha + \beta = 0.9793$) y sugiere que los shocks de volatilidad se disipan lentamente en el horizonte proyectado.
+
+# EJERCICIO 3 – Modelos ARIMA-GARCH para Volatilidad
+
+El archivo **“Dis Net.xlsx”** contiene información diaria del precio de las acciones de Disney y de Netflix para el periodo Enero 2 de 2019 a Agosto 17 de 2020.
+
+> En finanzas el coeficiente de variación es una medida estadística ($CV = \text{desviación estándar} / \text{media}$) que se emplea para calcular cuánta variación o riesgo se supone en comparación con el rendimiento esperado de una inversión. Cuanto menor sea la relación entre la desviación estándar y el rendimiento medio, mayor será el compromiso riesgo-rendimiento.
+
+**a)** Grafique el precio de cada activo (en logaritmo) y el rendimiento del precio (diferencia del logaritmo del precio $* 100)$).
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# 1. Cargar los datos
+df <- read_excel("3. Dis_Net.xlsx")
+
+# 2. Calcular logaritmos y rendimientos
+# Usamos log(P) - log(lag(P)) para la tasa de crecimiento continua
+df <- df %>%
+  mutate(
+    log_Disney = log(Disney),
+    log_Netflix = log(Netflix),
+    ret_Disney = (log_Disney - lag(log_Disney)) * 100,
+    ret_Netflix = (log_Netflix - lag(log_Netflix)) * 100
+  )
+```
+
+```{r}
+df_log <- df %>%
+  select(Date, log_Disney, log_Netflix) %>%
+  pivot_longer(cols = -Date, names_to = "Activo", values_to = "Log_Precio")
+
+ggplot(df_log, aes(x = Date, y = Log_Precio, color = Activo)) +
+  geom_line() +
+  labs(title = "Precio de las Acciones (Logaritmo)",
+       x = "Fecha",
+       y = "Log(Precio)") +
+  scale_color_manual(values = c("log_Disney" = "blue", "log_Netflix" = "red"),
+                     labels = c("Disney", "Netflix")) +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+# 4. Gráfico de Rendimientos
+df_ret <- df %>%
+  select(Date, ret_Disney, ret_Netflix) %>%
+  pivot_longer(cols = -Date, names_to = "Activo", values_to = "Rendimiento")
+
+ggplot(df_ret, aes(x = Date, y = Rendimiento, color = Activo)) +
+  geom_line(alpha = 0.7) +
+  labs(title = "Rendimiento Diario de las Acciones",
+       subtitle = "Diferencia logarítmica * 100",
+       x = "Fecha",
+       y = "Rendimiento (%)") +
+  scale_color_manual(values = c("ret_Disney" = "blue", "ret_Netflix" = "red"),
+                     labels = c("Disney", "Netflix")) +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+
+Podemos ver como Netflix tiene un crecimiento más pronunciado en su precio, especialmente a partir de marzo de 2020, lo que coincide con el inicio de la pandemia y el aumento en la demanda de servicios de streaming. Por otro lado, Disney muestra un crecimiento más moderado, con una caída significativa en marzo de 2020 debido al impacto de la pandemia en sus parques temáticos y producciones cinematográficas. En cuanto a los rendimientos, ambos activos presentan una alta volatilidad, con picos de rendimiento positivo para Netflix durante la pandemia, mientras que Disney muestra una mayor variabilidad con rendimientos negativos más frecuentes, reflejando las dificultades que enfrentó durante ese período.
+
+
+**b)** ¿Qué puede decir acerca de la estacionariedad del rendimiento de los activos (gráficamente)?
+
+Gráficamente, el rendimiento de ambos activos muestra una alta volatilidad, con picos de rendimiento positivo para Netflix durante la pandemia, mientras que Disney muestra una mayor variabilidad con rendimientos negativos más frecuentes. Sin embargo, a simple vista no se puede determinar si las series son estacionarias o no, ya que la volatilidad y los picos pueden ser indicativos tanto de series estacionarias como no estacionarias. Para confirmar la estacionariedad, sería necesario realizar pruebas estadísticas formales como la prueba ADF o KPSS.
+
+**c)** Muestre que para ambas series se cumplen los 4 hechos estilizados que estudiamos en Clase.
+
+
+```{r}
+library(moments)
+
+retornos <- df %>%
+  select(Date, ret_Disney, ret_Netflix) %>%
+  rename(fecha = Date, disney = ret_Disney, netflix = ret_Netflix) %>%
+  filter(!is.na(disney) & !is.na(netflix))
+
+# 1. Clustering de volatilidad — serie de retornos al cuadrado
+p1 <- ggplot(retornos, aes(x = fecha)) +
+  geom_line(aes(y = disney^2), color = "blue", alpha = 0.7) +
+  geom_line(aes(y = netflix^2), color = "red", alpha = 0.7) +
+  labs(title = "Clustering de Volatilidad (retornos²)",
+       x = "Fecha", y = "Retorno²") +
+  theme_minimal()
+
+# 2 y 3. Asimetría y curtosis — histograma vs normal
+p2 <- ggplot(retornos, aes(x = disney)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, fill = "blue", alpha = 0.5) +
+  stat_function(fun = dnorm,
+                args = list(mean = mean(retornos$disney, na.rm = TRUE),
+                            sd   = sd(retornos$disney, na.rm = TRUE)),
+                color = "black", size = 1) +
+  labs(title = "Distribución Disney vs Normal", x = "Retorno", y = "Densidad") +
+  theme_minimal()
+
+p3 <- ggplot(retornos, aes(x = netflix)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 50, fill = "red", alpha = 0.5) +
+  stat_function(fun = dnorm,
+                args = list(mean = mean(retornos$netflix, na.rm = TRUE),
+                            sd   = sd(retornos$netflix, na.rm = TRUE)),
+                color = "black", size = 1) +
+  labs(title = "Distribución Netflix vs Normal", x = "Retorno", y = "Densidad") +
+  theme_minimal()
+
+library(patchwork)
+p1 / (p2 | p3)
+
+# Estadísticos formales
+data.frame(
+  Activo    = c("Disney", "Netflix"),
+  Asimetria = c(skewness(retornos$disney, na.rm = TRUE), skewness(retornos$netflix, na.rm = TRUE)),
+  Curtosis  = c(kurtosis(retornos$disney, na.rm = TRUE), kurtosis(retornos$netflix, na.rm = TRUE))
+) |> knitr::kable(digits = 4, caption = "Estadísticos descriptivos")
+```
+
+Las gráficas confirman los cuatro hechos estilizados para ambos activos.
+
+**Clustering de volatilidad:** La gráfica superior muestra períodos de 
+alta volatilidad concentrados, especialmente durante marzo de 2020 con 
+la irrupción de la pandemia, donde los retornos al cuadrado de ambos 
+activos se disparan simultáneamente. Fuera de ese episodio, la volatilidad 
+es relativamente baja y estable.
+
+**Colas pesadas y curtosis:** Los histogramas muestran que la distribución 
+de ambos activos es más apuntada y con colas más anchas que la curva 
+normal (línea negra), lo que indica una curtosis superior a 3. Esto 
+implica que los retornos extremos ocurren con mayor frecuencia de lo 
+que predice la distribución normal.
+
+**Asimetría:** Disney presenta una cola izquierda más pronunciada, 
+sugiriendo mayor frecuencia de caídas extremas. Netflix muestra una 
+distribución más simétrica pero igualmente leptocúrtica.
+
+**d)** Presente una tabla con las estadísticas descriptivas del rendimiento de cada acción. Incluya en la última fila el cálculo del coeficiente de variación (CV). Comente los resultados, ¿cuál es el mejor activo para invertir?.
+
+```{r}
+# tabla de estadísticas descriptivas
+library(knitr)
+stats <- data.frame(
+  Activo = c("Disney", "Netflix"),
+  Media = c(mean(retornos$disney, na.rm = TRUE), mean(retornos$netflix, na.rm = TRUE)),
+  Desviacion_Estandar = c(sd(retornos$disney, na.rm = TRUE), sd(retornos$netflix, na.rm = TRUE))
+)
+stats <- stats %>%
+  mutate(CV = Desviacion_Estandar / abs(Media))
+kable(stats, digits = 4, caption = "Estadísticas descriptivas de los rendimientos")
+```
+
+Con un coeficiente de variación (CV) de 55.7 para las acciones de Disney y 17.5 para las de Netflix, se puede concluir que Netflix es el activo más atractivo para invertir, ya que ofrece un mejor compromiso riesgo-rendimiento. A pesar de que ambas acciones presentan rendimientos positivos, la volatilidad relativa de Netflix es mucho menor en comparación con su rendimiento medio, lo que sugiere que los inversores podrían obtener un retorno más consistente con un menor nivel de riesgo al invertir en Netflix en lugar de Disney.
+
+**e)** Utilice la metodología de Box-Jenkins para determinar el mejor modelo ARIMA-GARCH para el rendimiento de la acción de **Netflix**, con distribución Generalizada del Error (GED).
+
+```{r}
+# Paso 1 — Estacionariedad
+library(tseries)
+library(forecast)
+adf.test(retornos$netflix)
+
+# Paso 2 — FAC y FACP
+par(mfrow = c(1,2))
+acf(retornos$netflix,  main = "FAC — Retornos Netflix")
+pacf(retornos$netflix, main = "FACP — Retornos Netflix")
+
+# Paso 3 — Auto ARIMA
+auto_netflix <- auto.arima(retornos$netflix, seasonal = FALSE)
+summary(auto_netflix)
+```
+
+La prueba ADF aplicada sobre los retornos de Netflix arroja un estadístico 
+$DF = -8.3901$ con un p-valor de $0.01$, por lo que se rechaza la hipótesis 
+nula de raíz unitaria al 1% de significancia. Se concluye que la serie de 
+retornos es **estacionaria**, lo que permite proceder directamente con la 
+identificación del modelo ARIMA sin necesidad de diferenciar la serie.
+
+Además la función `auto.arima()` identifica un ARIMA(3,0,0)
+como mejor modelo para los retornos de Netflix ($AIC = 1913.95$, 
+$BIC = 1930$). Sin embargo, al estimar el modelo ARIMA(3,0,0) los 
+coeficientes autorregresivos $\phi_1 = -0.1182$, $\phi_2 = 0.1311$ 
+y $\phi_3 = 0.0233$ son de magnitud reducida, lo que anticipa que 
+la dinámica en la media puede no ser relevante una vez se incorpore la ecuación de varianza.
+
+```{r}
+# Paso 4 — Prueba ARCH sobre residuos del ARIMA
+library(FinTS)
+arch_test_netflix <- ArchTest(residuals(auto_netflix), lags = 12)
+arch_test_netflix
+```
+
+La prueba ARCH-LM aplicada sobre los residuos del ARIMA(3,0,0) arroja un estadístico $\chi^2 = 36.473$ con 12 grados de libertad y un p-valor de $0.0003$, rechazando la hipótesis nula de ausencia de efectos ARCH al 1% de significancia. Esto confirma la presencia de heterocedasticidad condicional en los retornos de Netflix.
+
+```{r}
+# Especificación GARCH(1,1)-GED sin componente ARIMA
+spec_netflix2 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "ged"
+)
+
+# Estimación
+garch_netflix2 <- ugarchfit(spec = spec_netflix2, data = retornos$netflix)
+
+# Verificar
+round(garch_netflix2@fit$matcoef, 6)
+```
+
+```{r}
+garch_residuals_netflix <- residuals(garch_netflix2, standardize = TRUE)
+ArchTest(garch_residuals_netflix, lags = 12)
+```
+
+La prueba ARCH-LM sobre los residuos estandarizados del GARCH(1,1)-GED arroja un estadístico $\chi^2 = 0.9464$ con 12 grados de libertad y un p-valor de $1.000$, por lo que no se rechaza la hipótesis nula de ausencia de efectos ARCH. El modelo capturó completamente la heterocedasticidad condicional de los retornos de Netflix.
+
+* **i.** Presente una tabla que muestre los resultados.
+
+```{r}
+# Tabla 1 — Coeficientes del modelo
+coefs <- round(garch_netflix2@fit$matcoef, 6)
+coefs_df <- data.frame(
+  Parámetro  = rownames(coefs),
+  Estimación = coefs[,1],
+  Error_Std  = coefs[,2],
+  t_valor    = coefs[,3],
+  p_valor    = coefs[,4]
+)
+
+knitr::kable(coefs_df,
+             col.names = c("Parámetro", "Estimación", "Error Std.", "t-valor", "p-valor"),
+             caption = "Coeficientes del modelo GARCH(1,1)-GED — Netflix",
+             digits = 6, align = "c")
+
+# Tabla 2 — Criterios de información
+ic <- infocriteria(garch_netflix2)
+ic_df <- data.frame(
+  Criterio = rownames(ic),
+  Valor    = round(ic, 6)
+)
+
+knitr::kable(ic_df,
+             col.names = c("Criterio", "Valor"),
+             caption = "Criterios de información — GARCH(1,1)-GED Netflix",
+             align = "c")
+
+# Tabla 3 — Pronóstico 2021 (ajusta el año según tus datos)
+forecast_netflix <- ugarchforecast(garch_netflix2, n.ahead = 4)
+
+pronostico_df <- data.frame(
+  Trimestre   = c("Q1", "Q2", "Q3", "Q4"),
+  Media       = round(as.numeric(fitted(forecast_netflix)), 4),
+  Varianza    = round(as.numeric(sigma(forecast_netflix))^2, 4),
+  Volatilidad = round(as.numeric(sigma(forecast_netflix)) * 100, 4)
+)
+
+knitr::kable(pronostico_df,
+             col.names = c("Trimestre", "Media esperada", 
+                           "Varianza esperada", "Volatilidad (%)"),
+             caption = "Pronóstico GARCH(1,1)-GED — Netflix",
+             align = "c")
+```
+
+* **ii.** Muestre los soportes que sean necesarios para demostrar que el modelo seleccionado es bueno y modela adecuadamente la varianza condicional.
+
+```{r}
+# 1. Residuos estandarizados — deben comportarse como ruido blanco
+p1 <- ggplot(data.frame(t = 1:length(garch_residuals_netflix), 
+                         res = garch_residuals_netflix), 
+             aes(x = t, y = res)) +
+  geom_line(color = "steelblue", linewidth = 0.4) +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  labs(title = "Residuos estandarizados", x = "Tiempo", y = "Residuo") +
+  theme_minimal()
+
+# 2. FAC de residuos estandarizados — no debe haber autocorrelación
+p2 <- ggAcf(garch_residuals_netflix, main = "FAC — Residuos estandarizados")
+
+# 3. FAC de residuos al cuadrado — no debe haber efecto ARCH
+p3 <- ggAcf(garch_residuals_netflix^2, main = "FAC — Residuos² estandarizados")
+
+# 4. QQ-plot — verificar distribución GED
+p4 <- ggplot(data.frame(res = garch_residuals_netflix), aes(sample = res)) +
+  stat_qq() + stat_qq_line(color = "red") +
+  labs(title = "QQ-plot residuos", x = "Cuantiles teóricos", 
+       y = "Cuantiles muestrales") +
+  theme_minimal()
+
+(p1 | p2) / (p3 | p4)
+
+# 5. Prueba Ljung-Box sobre residuos y residuos al cuadrado
+lb_res  <- Box.test(garch_residuals_netflix,    lag = 12, type = "Ljung-Box")
+lb_res2 <- Box.test(garch_residuals_netflix^2,  lag = 12, type = "Ljung-Box")
+
+data.frame(
+  Prueba    = c("Ljung-Box residuos", "Ljung-Box residuos²"),
+  Chi2      = round(c(lb_res$statistic,  lb_res2$statistic), 4),
+  p_valor   = round(c(lb_res$p.value,    lb_res2$p.value), 4)
+) |> knitr::kable(caption = "Pruebas de diagnóstico — GARCH(1,1)-GED Netflix",
+                  align = "c")
+```
+
+La tabla de diagnóstico confirma que el modelo GARCH(1,1)-GED es adecuado. La prueba Ljung-Box sobre los residuos estandarizados arroja un estadístico $\chi^2 = 18.533$ con p-valor $= 0.1004$, por lo que no se rechaza la hipótesis nula de ausencia de autocorrelación en la media. Sobre los residuos al cuadrado, el estadístico $\chi^2 = 1.028$ con p-valor $= 1.000$ confirma que no existe efecto ARCH residual, resultado consistente con la prueba ARCH-LM obtenida anteriormente ($p = 1.000$). En conjunto, ambas pruebas validan que el modelo captura correctamente tanto la dinámica de la media como la heterocedasticidad condicional de los 
+retornos de Netflix.
+
+
+* **iii.** Muestre el gráfico de la varianza estimada (GARCH).
+
+```{r}
+# Extraer varianza condicional
+data_netflix <- data.frame(
+  fecha    = retornos$fecha,
+  varianza = as.numeric(sigma(garch_netflix2)^2)
+)
+
+ggplot(data_netflix, aes(x = fecha, y = varianza)) +
+  geom_line(color = "red", linewidth = 0.5) +
+  labs(title = "Varianza Condicional Estimada — GARCH(1,1)-GED Netflix",
+       x = "Fecha",
+       y = "Varianza Condicional") +
+  theme_minimal()
+```
+
+La varianza condicional estimada por el modelo GARCH(1,1)-GED muestra un comportamiento estable durante la mayor parte del período analizado, con valores que oscilan entre 3 y 8. Se identifican dos episodios de volatilidad moderada en 2019 (enero y julio), probablemente asociados a resultados trimestrales de la compañía.
+
+El evento dominante es el pico de marzo de 2020, donde la varianza 
+condicional se dispara hasta aproximadamente 32, reflejando el impacto de la pandemia COVID-19 sobre los mercados financieros. Tras este shock, la volatilidad se disipa gradualmente pero no regresa de inmediato a sus niveles previos, lo que es consistente con la alta persistencia del modelo ($\alpha + \beta = 0.8792$)
+
+**f)** Utilice la metodología de Box-Jenkins para determinar el mejor modelo ARIMA-GARCH para el rendimiento de la acción de **Disney**, con distribución Generalizada del Error (GED).
+
+```{r}
+# Paso 1 — Estacionariedad Disney
+adf.test(retornos$disney)
+```
+
+La prueba ADF aplicada sobre los retornos de Disney arroja un estadístico $DF = -6.6648$ con un p-valor de $0.01$, rechazando la hipótesis nula de raíz unitaria al 1% de significancia. Se concluye que la serie de retornos es **estacionaria**
+
+```{r}
+# Paso 2 — FAC y FACP
+par(mfrow = c(1,2))
+acf(retornos$disney,  main = "FAC — Retornos Disney")
+pacf(retornos$disney, main = "FACP — Retornos Disney")
+
+# Paso 3 — Auto ARIMA
+auto_disney <- auto.arima(retornos$disney, seasonal = FALSE)
+summary(auto_disney)
+```
+
+La función `auto.arima()` identifica un ARIMA(1,0,0) con media cero como mejor modelo para los retornos de Disney ($AIC = 1859.35$, 
+$BIC = 1867.38$), con un coeficiente autorregresivo $\phi_1 = -0.1862$. 
+La FAC muestra un rezago significativo en el lag 1, mientras que la FACP presenta significancia en el lag 6, lo que es consistente con la especificación AR(1) identificada por el criterio de información.
+
+```{r}
+# Paso 4 — Prueba ARCH sobre residuos del ARIMA
+ArchTest(residuals(auto_disney), lags = 12)
+```
+
+La prueba ARCH-LM sobre los residuos del ARIMA(1,0,0) arroja un 
+estadístico $\chi^2 = 93.292$ con 12 grados de libertad y un p-valor de $1.135 \times 10^{-14}$, rechazando contundentemente la hipótesis nula de ausencia de efectos ARCH al 1% de significancia. Se confirma la presencia de heterocedasticidad condicional en los retornos de Disney
+
+```{r}
+# Con AR(1)
+spec_disney1 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(1, 0), include.mean = TRUE),
+  distribution.model = "ged"
+)
+garch_disney1 <- ugarchfit(spec = spec_disney1, data = retornos$disney)
+round(garch_disney1@fit$matcoef, 6)
+
+# Sin parte ARIMA
+spec_disney2 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "ged"
+)
+garch_disney2 <- ugarchfit(spec = spec_disney2, data = retornos$disney)
+round(garch_disney2@fit$matcoef, 6)
+
+# Comparar criterios
+infocriteria(garch_disney1)
+infocriteria(garch_disney2)
+```
+
+Se selecciona el GARCH(1,1)-GED como modelo final, con coeficientes $\omega = 0.2770$, $\alpha = 0.2494$ y $\beta = 0.7104$, todos significativos al 5%. La suma $\alpha + \beta = 0.9598$ indica alta persistencia en la volatilidad, y el parámetro de forma $\xi = 1.0040$ confirma colas pesadas en los retornos de Disney.
+
+```{r}
+garch_residuals_disney <- residuals(garch_disney2, standardize = TRUE)
+
+# ARCH-LM
+ArchTest(garch_residuals_disney, lags = 12)
+
+# Ljung-Box
+lb_res  <- Box.test(garch_residuals_disney,   lag = 12, type = "Ljung-Box")
+lb_res2 <- Box.test(garch_residuals_disney^2, lag = 12, type = "Ljung-Box")
+
+data.frame(
+  Prueba  = c("Ljung-Box residuos", "Ljung-Box residuos²"),
+  Chi2    = round(c(lb_res$statistic,  lb_res2$statistic), 4),
+  p_valor = round(c(lb_res$p.value,    lb_res2$p.value),   4)
+) |> knitr::kable(caption = "Diagnóstico — GARCH(1,1)-GED Disney", align = "c")
+```
+
+Las pruebas de diagnóstico confirman que el modelo GARCH(1,1)-GED es adecuado para los retornos de Disney. La prueba ARCH-LM arroja $\chi^2 = 1.805$ con p-valor $= 0.9997$, y la prueba Ljung-Box sobre los residuos estandarizados obtiene p-valor $= 0.9328$, por lo que no se rechaza la hipótesis nula de ausencia de autocorrelación. 
+Sobre los residuos al cuadrado, el p-valor $= 0.9998$ confirma que el modelo eliminó completamente la heterocedasticidad condicional, validando la especificación adoptada.
+
+* **i.** Presente una tabla que muestre los resultados.
+
+```{r}
+# Tabla 1 — Coeficientes del modelo
+coefs_disney <- round(garch_disney2@fit$matcoef, 6)
+coefs_disney_df <- data.frame(
+  Parámetro  = rownames(coefs_disney),
+  Estimación = coefs_disney[,1],
+  Error_Std  = coefs_disney[,2],
+  t_valor    = coefs_disney[,3],
+  p_valor    = coefs_disney[,4]
+)
+
+knitr::kable(coefs_disney_df,
+             col.names = c("Parámetro", "Estimación", "Error Std.", "t-valor", "p-valor"),
+             caption = "Coeficientes del modelo GARCH(1,1)-GED — Disney",
+             digits = 6, align = "c")
+
+# Tabla 2 — Criterios de información
+ic_disney <- infocriteria(garch_disney2)
+ic_disney_df <- data.frame(
+  Criterio = rownames(ic_disney),
+  Valor    = round(ic_disney, 6)
+)
+
+knitr::kable(ic_disney_df,
+             col.names = c("Criterio", "Valor"),
+             caption = "Criterios de información — GARCH(1,1)-GED Disney",
+             align = "c")
+
+# Tabla 3 — Pronóstico
+forecast_disney <- ugarchforecast(garch_disney2, n.ahead = 4)
+
+pronostico_disney_df <- data.frame(
+  Trimestre   = c("Q1", "Q2", "Q3", "Q4"),
+  Media       = round(as.numeric(fitted(forecast_disney)), 4),
+  Varianza    = round(as.numeric(sigma(forecast_disney))^2, 4),
+  Volatilidad = round(as.numeric(sigma(forecast_disney)), 4)
+)
+
+knitr::kable(pronostico_disney_df,
+             col.names = c("Trimestre", "Media esperada",
+                           "Varianza esperada", "Volatilidad"),
+             caption = "Pronóstico GARCH(1,1)-GED — Disney",
+             align = "c")
+```
+
+
+Todos los coeficientes del modelo GARCH(1,1)-GED son estadísticamente 
+significativos al 5%. La suma $\alpha + \beta = 0.9598$ indica alta 
+persistencia en la volatilidad, y el parámetro de forma $\xi = 1.004$ 
+confirma colas muy pesadas en la distribución de los retornos.
+
+El pronóstico muestra una media esperada constante de $0.0343$ para 
+los cuatro trimestres, mientras que la varianza condicional crece 
+progresivamente de $2.7892$ a $3.2641$, con una volatilidad que 
+escala de $1.67$ a $1.81$. Este incremento gradual refleja la alta 
+persistencia del modelo: los shocks de volatilidad se acumulan 
+lentamente en el horizonte proyectado sin disiparse rápidamente.
+
+* **ii.** Muestre los soportes que sean necesarios para demostrar que el modelo seleccionado es bueno y modela adecuadamente la varianza condicional.
+
+```{r}
+# Residuos estandarizados
+garch_residuals_disney <- residuals(garch_disney2, standardize = TRUE)
+
+# 1. Residuos estandarizados
+p1 <- ggplot(data.frame(t = 1:length(garch_residuals_disney),
+                         res = garch_residuals_disney),
+             aes(x = t, y = res)) +
+  geom_line(color = "steelblue", linewidth = 0.4) +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  labs(title = "Residuos estandarizados", x = "Tiempo", y = "Residuo") +
+  theme_minimal()
+
+# 2. FAC residuos
+p2 <- ggAcf(garch_residuals_disney, main = "FAC — Residuos estandarizados")
+
+# 3. FAC residuos al cuadrado
+p3 <- ggAcf(garch_residuals_disney^2, main = "FAC — Residuos²")
+
+# 4. QQ-plot
+p4 <- ggplot(data.frame(res = garch_residuals_disney), aes(sample = res)) +
+  stat_qq() + stat_qq_line(color = "red") +
+  labs(title = "QQ-plot residuos", x = "Cuantiles teóricos",
+       y = "Cuantiles muestrales") +
+  theme_minimal()
+
+(p1 | p2) / (p3 | p4)
+```
+
+Podemos ver como los residuos estandarizados del modelo GARCH(1,1)-GED para Disney se comportan como ruido blanco, sin patrones evidentes ni autocorrelación significativa. La FAC de los residuos muestra que no hay autocorrelación significativa en ningún rezago, mientras que la FAC de los residuos al cuadrado confirma que no existe efecto ARCH residual. El QQ-plot indica que los residuos siguen una distribución con colas pesadas, consistente con la especificación GED del modelo.
+
+* **iii.** Muestre el gráfico de la varianza estimada (GARCH).
+
+```{r}
+data_disney <- data.frame(
+  fecha    = retornos$fecha,
+  varianza = as.numeric(sigma(garch_disney2)^2)
+)
+
+ggplot(data_disney, aes(x = fecha, y = varianza)) +
+  geom_line(color = "blue", linewidth = 0.5) +
+  labs(title = "Varianza Condicional Estimada — GARCH(1,1)-GED Disney",
+       x = "Fecha",
+       y = "Varianza Condicional") +
+  theme_minimal()
+```
+
+Podemos observar que la varianza condicional estimada por el modelo GARCH(1,1)-GED para Disney muestra un comportamiento relativamente estable durante la mayor parte del período analizado,pero con un pico significativo en marzo de 2020, coincidiendo con el impacto de la pandemia COVID-19. Tras este evento, la volatilidad se disipa gradualmente pero no regresa inmediatamente a los niveles previos, lo que es consistente con la alta persistencia del modelo. En general, el modelo captura adecuadamente la dinámica de la varianza condicional de los retornos de Disney a lo largo del tiempo.
+
+
+
+# EJERCICIO 4 – Valor en Riesgo (VaR)
+
+Considere un portafolio de tres activos (acciones – BANCOLOMBIA, GRUPOSURA, ISA).
+El archivo “Portafolio Var.xlsx” contiene información desde enero de 2021 hasta octubre de 2023. Suponga que el valor inicial de cada portafolio es de 100.000.000 de pesos.
+
+```{r}
+dff <- read_excel("4. Portafolio_VaR.xlsx")
+```
+
+**a)** Construya dos portafolios, el primero con los activos (Bancolombia (40%), Davivienda (30%), AVAL (30%)) y el segundo con los activos (Ecopetrol (50%), Promigas (30%), GEB (20%)) y compare el comportamiento de cada uno utilizando estadísticas descriptivas (media, desviación estándar, etc). Presente una gráfica del rendimiento de cada portafolio y una tabla de las estadísticas descriptivas de ambos portafolios. Comente. ¿Cuál portafolio ha tenido mejor comportamiento y rendimiento promedio?
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(moments)
+
+# Portafolio 1: Bancolombia (40%), Davivienda (30%), AVAL (30%)
+dff$portafolio1 <- 0.40 * dff$Rbancolombia + 
+                   0.30 * dff$Rdavivienda + 
+                   0.30 * dff$Raval
+
+# Portafolio 2: Ecopetrol (50%), Promigas (30%), GEB (20%)
+dff$portafolio2 <- 0.50 * dff$Recopetrol + 
+                   0.30 * dff$Rpromigas + 
+                   0.20 * dff$Rgeb
+
+# Estadísticas descriptivas
+stats <- data.frame(
+  Estadístico = c("Media", "Desv. Estándar", "Mínimo", "Máximo",
+                  "Asimetría", "Curtosis"),
+  Portafolio1 = c(mean(dff$portafolio1),
+                  sd(dff$portafolio1),
+                  min(dff$portafolio1),
+                  max(dff$portafolio1),
+                  skewness(dff$portafolio1),
+                  kurtosis(dff$portafolio1)),
+  Portafolio2 = c(mean(dff$portafolio2),
+                  sd(dff$portafolio2),
+                  min(dff$portafolio2),
+                  max(dff$portafolio2),
+                  skewness(dff$portafolio2),
+                  kurtosis(dff$portafolio2))
+)
+
+knitr::kable(stats,
+             col.names = c("Estadístico",
+                           "P1 (Bancolombia/Davivienda/AVAL)",
+                           "P2 (Ecopetrol/Promigas/GEB)"),
+             caption = "Estadísticas descriptivas de los portafolios",
+             digits = 4, align = "c")
+
+# Gráfica
+ggplot(dff, aes(x = Date)) +
+  geom_line(aes(y = portafolio1, color = "P1: Bancolombia/Davivienda/AVAL")) +
+  geom_line(aes(y = portafolio2, color = "P2: Ecopetrol/Promigas/GEB")) +
+  scale_color_manual(values = c("steelblue", "red")) +
+  labs(title = "Rendimiento de los Portafolios",
+       x = "Fecha", y = "Rendimiento", color = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+El portafolio 2 (Ecopetrol/Promigas/GEB) tuvo mejor comportamiento, con una media positiva de $0.0001$ frente a la media negativa de $-0.0006$ del portafolio 1. Ambos portafolios presentan volatilidades similares (1.38% vs 1.50%) y curtosis superior a 3, lo que indica que los retornos extremos ocurren con más frecuencia de lo normal. 
+En términos de rendimiento promedio, el portafolio 2fue el ganador del período analizado.
+
+
+**b)**Calcule el VaR de cada portafolio al 95%. Presente una tabla comparando los dos portafolios. Comente.
+
+```{r}
+valor_inicial <- 100000000  # 100 millones de pesos
+confianza <- 0.95
+
+# VaR Paramétrico (distribución normal)
+var_param_p1 <- valor_inicial * (mean(dff$portafolio1) - 
+                qnorm(confianza) * sd(dff$portafolio1))
+
+var_param_p2 <- valor_inicial * (mean(dff$portafolio2) - 
+                qnorm(confianza) * sd(dff$portafolio2))
+
+# VaR No Paramétrico (histórico)
+var_hist_p1 <- valor_inicial * quantile(dff$portafolio1, 1 - confianza)
+var_hist_p2 <- valor_inicial * quantile(dff$portafolio2, 1 - confianza)
+
+# VaR Cornish-Fisher
+library(PerformanceAnalytics)
+var_cf_p1 <- valor_inicial * VaR(dff$portafolio1, p = confianza, method = "modified")
+var_cf_p2 <- valor_inicial * VaR(dff$portafolio2, p = confianza, method = "modified")
+
+# Tabla comparativa
+var_tabla <- data.frame(
+  Método       = c("Paramétrico", "Histórico", "Cornish-Fisher"),
+  Portafolio1  = round(c(var_param_p1, var_hist_p1, var_cf_p1), 0),
+  Portafolio2  = round(c(var_param_p2, var_hist_p2, var_cf_p2), 0)
+)
+
+knitr::kable(var_tabla,
+             col.names = c("Método", 
+                           "P1 (Bancolombia/Davivienda/AVAL)",
+                           "P2 (Ecopetrol/Promigas/GEB)"),
+             caption = "VaR al 95% — Portafolios (COP)",
+             align = "c",
+             format.args = list(big.mark = ","))
+```
+
+El VaR al 95% indica la pérdida máxima esperada en un día con un 95% de confianza. Los tres métodos coinciden en que el portafolio 2 (Ecopetrol/Promigas/GEB) es más riesgoso: bajo el método paramétrico, la pérdida máxima diaria estimada es de \$2,448,160 frente a \$2,329,386 del portafolio 1. Resultados similares se obtienen con los métodos histórico y Cornish-Fisher.
+
+El método Cornish-Fisher ajusta por asimetría y curtosis, siendo el más conservador para el portafolio 1 (\$2,155,227) y confirmando que, aunque el portafolio 2 tiene mejor rendimiento promedio, implica una mayor exposición al riesgo de pérdidas extremas.
+
+**c)** Calcule la contribución al VaR de cada uno de los activos de cada portafolio (Paramétrico, No Paramétrico y Cornish-Fisher). Comente.
+
+```{r}
+# Contribución al VaR — Portafolio 1
+pesos_p1 <- c(0.40, 0.30, 0.30)
+activos_p1 <- dff[, c("Rbancolombia", "Rdavivienda", "Raval")]
+
+# Contribución al VaR — Portafolio 2
+pesos_p2 <- c(0.50, 0.30, 0.20)
+activos_p2 <- dff[, c("Recopetrol", "Rpromigas", "Rgeb")]
+
+# Paramétrico (corregido)
+contrib_param <- function(pesos, activos, valor, confianza){
+  sigma_activos <- apply(activos, 2, sd)
+  cor_matrix    <- cor(activos)
+  cov_matrix    <- diag(sigma_activos) %*% cor_matrix %*% diag(sigma_activos)
+  sigma_port    <- sqrt(t(pesos) %*% cov_matrix %*% pesos)
+  mvar          <- (cov_matrix %*% pesos) / as.numeric(sigma_port)
+  contrib       <- -pesos * mvar * qnorm(confianza) * valor
+  return(contrib)
+}
+
+cp_p1 <- contrib_param(pesos_p1, activos_p1, valor_inicial, confianza)
+cp_p2 <- contrib_param(pesos_p2, activos_p2, valor_inicial, confianza)
+
+# No Paramétrico (histórico)
+contrib_hist <- function(pesos, activos, valor, confianza){
+  ret_port  <- as.matrix(activos) %*% pesos
+  idx       <- which.min(abs(ret_port - quantile(ret_port, 1 - confianza)))
+  contrib   <- pesos * as.numeric(activos[idx,]) * valor
+  return(contrib)
+}
+
+ch_p1 <- contrib_hist(pesos_p1, activos_p1, valor_inicial, confianza)
+ch_p2 <- contrib_hist(pesos_p2, activos_p2, valor_inicial, confianza)
+
+# Cornish-Fisher
+contrib_cf <- function(pesos, activos, valor, confianza){
+  contrib <- mapply(function(w, r){
+    VaR(as.numeric(r), p = confianza, method = "modified") * w * valor
+  }, pesos, activos)
+  return(contrib)
+}
+
+ccf_p1 <- contrib_cf(pesos_p1, activos_p1, valor_inicial, confianza)
+ccf_p2 <- contrib_cf(pesos_p2, activos_p2, valor_inicial, confianza)
+
+# Tabla Portafolio 1
+tabla_p1 <- data.frame(
+  Activo         = c("Bancolombia (40%)", "Davivienda (30%)", "AVAL (30%)"),
+  Paramétrico    = round(cp_p1, 0),
+  Histórico      = round(ch_p1, 0),
+  Cornish_Fisher = round(ccf_p1, 0)
+)
+
+knitr::kable(tabla_p1,
+             col.names = c("Activo", "Paramétrico", 
+                           "Histórico", "Cornish-Fisher"),
+             caption = "Contribución al VaR 95% — Portafolio 1 (COP)",
+             align = "c",
+             format.args = list(big.mark = ","))
+
+# Tabla Portafolio 2
+tabla_p2 <- data.frame(
+  Activo         = c("Ecopetrol (50%)", "Promigas (30%)", "GEB (20%)"),
+  Paramétrico    = round(cp_p2, 0),
+  Histórico      = round(ch_p2, 0),
+  Cornish_Fisher = round(ccf_p2, 0)
+)
+
+knitr::kable(tabla_p2,
+             col.names = c("Activo", "Paramétrico", 
+                           "Histórico", "Cornish-Fisher"),
+             caption = "Contribución al VaR 95% — Portafolio 2 (COP)",
+             align = "c",
+             format.args = list(big.mark = ","))
+```
+
+La contribución al VaR muestra qué activo aporta más al riesgo total de cada portafolio.
+
+En el **portafolio 1**, Bancolombia es el mayor contribuyente al riesgo en los tres métodos, con pérdidas estimadas entre \$1,000,540 y \$1,183,135, consistente con su mayor ponderación (40%). Davivienda y AVAL contribuyen de forma similar, aunque el método histórico asigna una contribución notablemente menor a AVAL (\$150,160), sugiriendo que este activo tuvo un comportamiento más estable en los peores días del portafolio.
+
+En el **portafolio 2**, Ecopetrol domina el riesgo con contribuciones entre \$986,877 y \$1,854,022 según el método, reflejando su mayor ponderación (50%). GEB presenta la menor contribución en el método paramétrico (\$350,854), pero el método histórico le asigna una contribución elevada (\$1,025,866), indicando que en los peores escenarios históricos GEB generó pérdidas significativas.
+
+En general, los tres métodos coinciden en identificar al activo de mayor peso como el principal contribuyente al riesgo, aunque las diferencias entre métodos reflejan que asumir normalidad (paramétrico) puede subestimar el riesgo frente a métodos que capturan mejor las colas de la distribución como Cornish-Fisher.
+
+# EJERCICIO 5 – Artículo Aplicación del Modelo CAPM y modelos GARCH
+
+Lea el artículo de Gómez y Melo (2014) sobre el efecto de ángeles caídos en el mercado accionario colombiano, y responda las siguientes preguntas:
+
+**a)** ¿Cuál es el objetivo del artículo?
+
+El objetivo es ver qué tan fuerte le pegó a las acciones de la Bolsa de Valores de Colombia el chisme y el lío de Interbolsa en 2012. Básicamente, querían saber si el hecho de que esa empresa se quedara sin plata y que el gobierno se la quitara hizo que los precios de las otras acciones se volvieran locos
+
+**b)**¿Qué metodologías emplean los autores para cumplir el objetivo?
+
+Usaron algo llamado estudio de eventos, que es para mirar fechas específicas. Para las matemáticas de los retornos, usaron el modelo CAPM (en dos versiones) y un modelo de 3 factores. También probaron con "ventanas" de varios días, desde 11 hasta 21 días, para ver si el efecto duraba. Y para la varianza, que es lo que cambia, usaron el EGARCH (1,1)
+
+
+**c)** ¿Por qué los autores utilizan un modelo GARCH Exponencial (EGARCH) para modelar la varianza condicional de los retornos de los activos?
+
+Porque están usando datos de alta frecuencia (o sea, diarios) y necesitan un modelo que aguante cómo cambia la volatilidad en esos casos. Lo usan para que los cálculos de los retornos "anormales" no salgan mal y para que el estudio sea más robusto ante los cambios bruscos del mercado
+
+**d)** ¿Cuáles son las conclusiones del estudio? Comente.
+
+conclusión es que todo se dañó por culpa de Interbolsa. El anuncio de que no tenían plata afectó de forma significativa a las otras empresas de la bolsa en todos los modelos que probaron. Básicamente, los retornos de las acciones fueron muy diferentes a lo normal cuando pasó el problema, confirmando que ese "ángel caído" sí arrastró a los demás.
