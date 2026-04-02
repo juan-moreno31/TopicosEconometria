@@ -1,10 +1,6 @@
-# 1. Ignorar todo por defecto
+
 *
 
-# 2. Permitir el archivo .gitignore (siempre es bueno tenerlo trackeado)
-!.gitignore
-
-# 3. Excepciones: Los únicos archivos que Git debe ver
 
 !taller5.qmd
 !taller5.pdf
