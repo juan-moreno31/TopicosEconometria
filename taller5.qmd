@@ -1009,3 +1009,5 @@ Porque están usando datos de alta frecuencia (o sea, diarios) y necesitan un mo
 **d)** ¿Cuáles son las conclusiones del estudio? Comente.
 
 conclusión es que todo se dañó por culpa de Interbolsa. El anuncio de que no tenían plata afectó de forma significativa a las otras empresas de la bolsa en todos los modelos que probaron. Básicamente, los retornos de las acciones fueron muy diferentes a lo normal cuando pasó el problema, confirmando que ese "ángel caído" sí arrastró a los demás.
+
+Para el link de github, dar click [aquí](https://github.com/juan-moreno31/TopicosEconometria/blob/69b02d311af1397828312a7b5e7ea2c4c4f9fe64/taller5.qmd)
